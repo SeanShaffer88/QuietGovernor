@@ -14,6 +14,7 @@ from quietgovernor.errors import (
     ApplyFailed,
     BackendError,
     NotElevatedError,
+    PlanNotActive,
     QuietGovernorError,
 )
 from quietgovernor.policy import AC, DC
@@ -241,14 +242,50 @@ class TestRestore(ControllerTestCase):
         self.assertFalse(result.changed)
         self.assertEqual(self.values()["max_state"], {AC: 100, DC: 100})
 
-    def test_restore_follows_a_plan_change(self) -> None:
-        # The user switched power plans after applying; restore still writes the
-        # recorded values into whatever plan is active now.
-        self.controller.apply("quiet", confirm=lambda plan: True)
+    def switch_plan(self) -> None:
         self.backend.scheme_name = "High performance"
         self.backend.scheme_guid = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
-        result = self.controller.restore(confirm=lambda plan: True)
+
+    def test_restore_refuses_after_a_plan_switch(self) -> None:
+        # Windows keeps these settings per plan. Restoring into the new plan
+        # would undo nothing while claiming success, and would then forget the
+        # plan that still holds the cap.
+        self.controller.apply("quiet", confirm=lambda plan: True)
+        self.switch_plan()
+        with self.assertRaises(PlanNotActive) as caught:
+            self.controller.restore(confirm=lambda plan: True)
+        self.assertIn("Balanced", str(caught.exception))
+        self.assertIn("--into-active-plan", str(caught.exception))
+        # Nothing written, and the machine is still governed.
+        self.assertEqual(self.values()["max_state"], {AC: 60, DC: 60})
+        self.assertTrue(self.controller.status().governing)
+
+    def test_restore_preview_explains_the_plan_switch_without_changing_anything(self) -> None:
+        self.controller.apply("quiet", confirm=lambda plan: True)
+        self.switch_plan()
+        result = self.controller.restore(dry_run=True)
+        self.assertFalse(result.changed)
         self.assertTrue(any("recorded in power plan" in note for note in result.plan.notes))
+        self.assertEqual(self.values()["max_state"], {AC: 60, DC: 60})
+
+    def test_restore_into_the_active_plan_when_asked(self) -> None:
+        self.controller.apply("quiet", confirm=lambda plan: True)
+        self.switch_plan()
+        result = self.controller.restore(confirm=lambda plan: True, into_active_plan=True)
+        self.assertTrue(result.changed)
+        self.assertTrue(any("--into-active-plan" in note for note in result.plan.notes))
+        self.assertEqual(self.values()["max_state"], {AC: 100, DC: 100})
+        self.assertFalse(self.controller.status().governing)
+
+    def test_switching_back_and_restoring_finishes_the_job(self) -> None:
+        # After --into-active-plan the baseline is kept, so returning to the plan
+        # that was changed still undoes the cap there.
+        self.controller.apply("quiet", confirm=lambda plan: True)
+        self.switch_plan()
+        self.controller.restore(confirm=lambda plan: True, into_active_plan=True)
+        self.backend.scheme_name = "Balanced"
+        self.backend.scheme_guid = "381b4222-f694-41f0-9685-ff5bb260df2e"
+        self.controller.restore(confirm=lambda plan: True)
         self.assertEqual(self.values()["max_state"], {AC: 100, DC: 100})
 
 

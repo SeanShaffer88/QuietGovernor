@@ -653,7 +653,9 @@ def cmd_restore(args: argparse.Namespace) -> int:
     simulated_banner(args, style)
     controller = build_controller(args)
     if args.preview:
-        result = controller.restore(dry_run=True)
+        result = controller.restore(
+            dry_run=True, into_active_plan=args.into_active_plan
+        )
         if args.json:
             print(json.dumps(_plan_dict(result.plan), indent=2))
             return 0
@@ -663,6 +665,7 @@ def cmd_restore(args: argparse.Namespace) -> int:
         return 0
     result = controller.restore(
         confirm=_confirmer(args, style, "Restore"),
+        into_active_plan=args.into_active_plan,
     )
     if args.json:
         print(
@@ -678,7 +681,18 @@ def cmd_restore(args: argparse.Namespace) -> int:
         return 0
     print_result(result, style, undo_hint=False)
     if result.changed:
-        print("Your original processor settings are back in place.")
+        if any("--into-active-plan" in note for note in result.plan.notes):
+            # Do not claim the machine is as it was: the plan that was changed
+            # may still hold the values, and only the user knows which plan they
+            # want to end up in.
+            print(
+                "Your original processor settings are back in place in the plan "
+                "that is active now. The plan they were recorded in may still "
+                "hold the values QuietGovernor wrote; switch to it and run "
+                "'quietgovernor restore' again to clear it."
+            )
+        else:
+            print("Your original processor settings are back in place.")
         print(
             f"The recorded values stay saved, so if you ever want them back "
             f"in a hurry: {PROGRAM} apply --profile quiet"
@@ -1117,6 +1131,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="show what restore would change",
     )
     restore.add_argument("--yes", "-y", action="store_true", help="do not ask for confirmation")
+    restore.add_argument(
+        "--into-active-plan",
+        action="store_true",
+        help="restore into the power plan that is active now even if the values "
+        "were changed in a different one (leaves that other plan alone)",
+    )
     restore.set_defaults(func=cmd_restore)
 
     autostart = add("autostart", help="optional: re-apply a profile at sign-in")

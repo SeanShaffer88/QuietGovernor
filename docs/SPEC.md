@@ -96,13 +96,22 @@ These are the promises the implementation must keep. Each has tests.
 
 ### 3.4 Restoring
 
-17. `restore` writes the recorded baseline values into the active plan and then
-    stops managing the machine (`state.json` is removed).
-18. The baseline file is kept after a restore, so the original values remain
+17. `restore` writes the recorded baseline values back into the power plan they
+    were recorded from, then stops managing the machine (`state.json` is removed).
+    A plan is where the values live; restoring somewhere else would undo nothing.
+18. If a different power plan is active, `restore` **refuses** (exit 1) and names
+    both plans plus the two ways forward: switch to the plan that was changed and
+    run it again, or pass `--into-active-plan`. Writing the recorded values into
+    an unrelated plan, then reporting success and forgetting the change, is
+    exactly the silent failure this project exists to avoid.
+19. `restore --into-active-plan` writes into the active plan anyway, says so, and
+    names the plan it leaves alone. The baseline is kept, so going back to the
+    original plan and running `restore` there still finishes the job.
+20. The baseline file is kept after a restore, so the original values remain
     available.
-19. `restore` with no baseline fails with "nothing to undo" and changes nothing.
-20. `restore` after a power-plan switch writes the recorded values into the plan
-    that is active now and says so in the plan notes.
+20a. `restore` with no baseline fails with "nothing to undo" and changes nothing.
+20b. `restore --preview` after a plan switch lists the changes and explains the
+    refusal instead of failing.
 21. `restore` refuses a stale plan exactly like `apply` (point 13).
 
 ### 3.5 Reporting
@@ -186,7 +195,7 @@ These are the promises the implementation must keep. Each has tests.
 | Own values | `profile set --max-state/--min-state/--boost` | — | Saved and re-usable |
 | Confirmation | interactive prompt | on | `--yes` skips the question |
 | Preview | `plan` (itself a preview); `--preview`/`--dry-run` on the commands that write | — | Writes nothing |
-| Reversibility | `restore` | — | Uses the recorded baseline |
+| Reversibility | `restore`, `restore --into-active-plan` | — | Uses the recorded baseline, in the plan that holds it |
 | Machine-readable output | `--json` | off | Writing commands then require `--yes` |
 | Colour | automatic, `--no-color`, `NO_COLOR` | auto | Never used for meaning alone |
 | State location | `--state-dir`, `QUIETGOVERNOR_STATE_DIR` | `%LOCALAPPDATA%` | |

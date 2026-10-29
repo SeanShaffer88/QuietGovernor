@@ -43,6 +43,16 @@ class ConsentUnavailable(ActionRefused):
     """
 
 
+class PlanNotActive(QuietGovernorError):
+    """The power plan that holds the recorded values is not the active plan.
+
+    Windows keeps these settings per plan, so writing the recorded values into
+    the active plan would leave the change in the other plan untouched while
+    reporting success. Restore refuses instead, unless the caller asks for the
+    active plan explicitly.
+    """
+
+
 class ApplyFailed(BackendError):
     """A write failed after changing at least one setting."""
 

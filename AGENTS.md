@@ -84,6 +84,9 @@ one of these is a regression, not a trade-off.
 19. A change refused because the tool could not ask for consent (no terminal,
     `--json` without `--yes`) exits 1, not 0. Only a person declining at the
     prompt is a success with no work done.
+20. `restore` never writes into a plan other than the one the values came from
+    unless `--into-active-plan` says so, and never claims the machine is back to
+    normal while another plan still holds what QuietGovernor wrote.
 
 ### Verification harness and releases
 

@@ -664,3 +664,63 @@ class TestGlobalOptionsAnywhere(unittest.TestCase):
                     os.environ.pop("QUIETGOVERNOR_STATE_DIR", None)
                 else:
                     os.environ["QUIETGOVERNOR_STATE_DIR"] = env
+
+
+class TestRestoreAfterAPlanSwitch(unittest.TestCase):
+    """Windows keeps these settings per plan; restore must not lie about it."""
+
+    def setUp(self) -> None:
+        import os
+        import tempfile
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self._env = os.environ.get("QUIETGOVERNOR_STATE_DIR")
+        os.environ["QUIETGOVERNOR_STATE_DIR"] = self._tmp.name
+        simulate("apply", "--profile", "quiet", "--yes")
+        self.switch_plan()
+
+    def tearDown(self) -> None:
+        import os
+
+        if self._env is None:
+            os.environ.pop("QUIETGOVERNOR_STATE_DIR", None)
+        else:
+            os.environ["QUIETGOVERNOR_STATE_DIR"] = self._env
+
+    def switch_plan(self) -> None:
+        import json as jsonlib
+        import pathlib
+
+        machine = pathlib.Path(self._tmp.name) / "simulated" / "simulated-machine.json"
+        payload = jsonlib.loads(machine.read_text(encoding="utf-8"))
+        payload["scheme_guid"] = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
+        payload["scheme_name"] = "High performance"
+        machine.write_text(jsonlib.dumps(payload), encoding="utf-8")
+
+    def test_restore_refuses_and_says_how_to_finish(self) -> None:
+        code, out, err = simulate("restore", "--yes")
+        self.assertEqual(code, 1)
+        self.assertIn("'Balanced'", err)
+        self.assertIn("'High performance'", err)
+        self.assertIn("--into-active-plan", err)
+        self.assertNotIn("back in place", out)
+
+    def test_a_refused_restore_keeps_governing(self) -> None:
+        simulate("restore", "--yes")
+        code, out, _err = simulate("status")
+        self.assertEqual(code, 0)
+        self.assertIn("Managing: quiet profile", out)
+
+    def test_preview_explains_instead_of_refusing(self) -> None:
+        code, out, _err = simulate("restore", "--preview")
+        self.assertEqual(code, 0)
+        self.assertIn("Restore refuses while that is true", out)
+
+    def test_into_active_plan_does_it_and_says_what_is_left(self) -> None:
+        code, out, err = simulate("restore", "--yes", "--into-active-plan")
+        self.assertEqual(code, 0, err)
+        self.assertIn("in the plan that is active now", out)
+        self.assertIn("may still hold the values", out)
+        code, out, _err = simulate("status")
+        self.assertIn("Not managing this PC", out)

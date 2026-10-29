@@ -30,6 +30,14 @@ All notable changes to QuietGovernor are recorded here. The format follows
   (`plan` is itself the preview; `--preview`/`--dry-run` belong to the commands
   that write).
 
+- After a power-plan switch, `restore` wrote the recorded values into whatever
+  plan was active, reported "Your original processor settings are back in place",
+  and cleared its state — while the plan it had actually changed kept the cap,
+  now forgotten. Windows keeps these settings per plan, so that is a silent
+  failure to undo. `restore` now refuses in that situation (exit 1), names both
+  plans, and says how to finish: switch to the plan that was changed and run it
+  again, or pass `--into-active-plan`. The restore point is kept either way.
+
 ## [0.3.0] — 2026-10-29
 
 ### Fixed
