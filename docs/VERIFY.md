@@ -7,14 +7,24 @@ is how that gap gets closed: run one script on the target PC, read the report,
 paste one row into the spec.
 
 The script is `scripts/verify_windows.py`. It is read-only unless you pass
-`--apply`.
+`--apply`. If you installed from a wheel, confirm which build you are testing with
+`quietgovernor --version` and paste that version into the report row.
 
 ## Before you start
 
 - A Windows 10 (1809+) or Windows 11 PC you are willing to change for about two
   minutes. Everything is put back automatically.
-- Python 3.9+ and QuietGovernor installed for that Python:
-  `py -m pip install quietgovernor`
+- Python 3.9+ and QuietGovernor installed for that Python. The package is not on
+  PyPI yet, so `pip install quietgovernor` will not find it — download the wheel
+  from the [Releases page](https://github.com/SeanShaffer88/QuietGovernor/releases)
+  and install that file:
+
+  ```pwsh
+  py -m pip install .\quietgovernor-0.3.0-py3-none-any.whl
+  ```
+
+  The script itself ships with the source, not the wheel, so also keep a copy of
+  the repository (the sdist on the same Releases page unpacks to the same files).
 - An **elevated** terminal for the write phase: right-click *Windows Terminal* or
   *Command Prompt* → *Run as administrator*.
 

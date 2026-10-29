@@ -81,7 +81,7 @@ refuses a per-user Python, for good reason.
 | Requirement | Detail |
 | --- | --- |
 | Windows | Windows 10 (1809 or later) or Windows 11 are the supported targets. The power API itself dates back to Windows Vista; older versions are untested and unsupported. |
-| Python | 3.9 or newer, 64-bit or 32-bit. `pipx install quietgovernor` keeps it isolated. |
+| Python | 3.9 or newer, 64-bit or 32-bit. `pipx install ./quietgovernor-0.3.0-py3-none-any.whl` keeps it isolated. |
 | Rights | **Administrator.** Windows refuses power-setting writes to standard users. Reading and previewing work without it. |
 | Firmware | Modern standby or S3 sleep, either is fine. No driver, service, or kernel component is installed. |
 

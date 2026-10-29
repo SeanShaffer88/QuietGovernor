@@ -4,6 +4,16 @@ All notable changes to QuietGovernor are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `docs/VERIFY.md` — the page a person follows to close the hardware gap — still
+  said `pip install quietgovernor`, which cannot work: the name is not on PyPI.
+  It now points at the release wheel and notes that the verification script ships
+  with the source, not the wheel. The README requirements table had the same
+  command.
+
 ## [0.3.0] — 2026-10-29
 
 ### Fixed
