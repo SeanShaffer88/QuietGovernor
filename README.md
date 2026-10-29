@@ -309,7 +309,7 @@ any Windows setting — only `restore` does.
 ## Verification status
 
 QuietGovernor labels every claim. The platform-independent logic is verified by an
-automated test suite of 261 tests that runs anywhere. The Windows API path has been
+automated test suite of 262 tests that runs anywhere. The Windows API path has been
 exercised once, on a GitHub-hosted Windows virtual machine (see below), but never
 on physical hardware and never with the resulting values inspected by a human.
 
@@ -318,7 +318,7 @@ on physical hardware and never with the resulting values inspected by a human.
 | Profiles, ranges, scope, explanations | **Verified** | `tests/test_policy.py`, `tests/test_planning.py` |
 | Planning, warnings, notes, drift maths | **Verified** | `tests/test_planning.py`, `tests/test_controller.py` |
 | Atomic storage, schema guards, baseline-once | **Verified** | `tests/test_store.py` |
-| Apply/restore/rollback/refusal ordering | **Verified** | `tests/test_controller.py` (50 tests, simulated backend) |
+| Apply/restore/rollback/refusal ordering | **Verified** | `tests/test_controller.py` (51 tests, simulated backend) |
 | Auto-start preflight, path trust, install/remove/verify | **Verified** | `tests/test_autostart.py` (45 tests, simulated scheduler) |
 | CLI behaviour, exit codes, `--json`, consent | **Verified** | `tests/test_cli.py` (60 tests) |
 | GUID packing for `powrprof.dll` | **Verified** (byte layout vs `uuid`) | `tests/test_windows.py` |
@@ -341,7 +341,7 @@ an issue. It is read-only unless you pass `--apply`.
 ## Development
 
 ```console
-python -m unittest discover -s . -p "test_*.py"    # 261 tests, no dependencies
+python -m unittest discover -s . -p "test_*.py"    # 262 tests, no dependencies
 python -m compileall -q src tests
 python -m quietgovernor --simulate status          # run from a checkout: PYTHONPATH=src
 ```
