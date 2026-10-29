@@ -439,3 +439,44 @@ class TestAutostartWithoutScheduler(unittest.TestCase):
         payload = json.loads(out)
         self.assertFalse(payload["autostart"]["available"])
         self.assertFalse(payload["autostart"]["installed"])
+
+
+class TestStatusJsonEnvironment(unittest.TestCase):
+    def test_real_mode_reports_elevation(self) -> None:
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            saved = os.environ.get("QUIETGOVERNOR_STATE_DIR")
+            os.environ["QUIETGOVERNOR_STATE_DIR"] = tmp
+            try:
+                with mock.patch("quietgovernor.cli.build_backend") as backend:
+                    from quietgovernor.backend import SimulatedBackend
+
+                    backend.return_value = SimulatedBackend()
+                    with mock.patch("quietgovernor.cli._elevated", return_value=False):
+                        code, out, _err = run_cli(["status", "--json"])
+            finally:
+                if saved is None:
+                    os.environ.pop("QUIETGOVERNOR_STATE_DIR", None)
+                else:
+                    os.environ["QUIETGOVERNOR_STATE_DIR"] = saved
+        self.assertEqual(code, 0)
+        self.assertIs(json.loads(out)["elevated"], False)
+
+    def test_simulation_reports_elevation_as_not_applicable(self) -> None:
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            saved = os.environ.get("QUIETGOVERNOR_STATE_DIR")
+            os.environ["QUIETGOVERNOR_STATE_DIR"] = tmp
+            try:
+                code, out, _err = run_cli(["--simulate", "status", "--json"])
+            finally:
+                if saved is None:
+                    os.environ.pop("QUIETGOVERNOR_STATE_DIR", None)
+                else:
+                    os.environ["QUIETGOVERNOR_STATE_DIR"] = saved
+        self.assertEqual(code, 0)
+        self.assertIsNone(json.loads(out)["elevated"])

@@ -6,6 +6,28 @@ All notable changes to QuietGovernor are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/verify_windows.py`: runs the `docs/SPEC.md` §9 hardware checklist on a
+  real PC and writes a JSON plus Markdown report (environment, Windows build,
+  elevation, expected and actual value for every setting, and a pasteable row for
+  the verification table). Read-only unless `--apply` is given; the write phase
+  always attempts a restore in a `finally` block, compares the written values
+  against QuietGovernor's own plan rather than copied constants, and refuses to
+  present a simulated or non-Windows run as evidence.
+- `docs/VERIFY.md`: the operator procedure, including what no script can check
+  (whether the fan is actually quieter), how to read each failure, and the second
+  machine coverage worth having.
+- `--json status` now reports `elevated` (`null` in simulation), so a report can
+  state whether writes were even possible.
+- `.github/workflows/release.yml`: on a `v*` tag, checks the tag matches the
+  package version, runs the suite, builds a wheel and sdist, installs the wheel in
+  a clean environment and drives the harness against it, then publishes a GitHub
+  release with both files. Until now there was no distributable at all.
+- 18 new tests (218 total) for the harness, including the guarantee that restore
+  runs after a failed check and that a failed restore is reported with the way
+  back.
+
 ## [0.2.0] — 2026-10-29
 
 ### Added

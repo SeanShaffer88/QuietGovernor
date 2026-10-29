@@ -270,3 +270,9 @@ following is still required on physical hardware:
 4. Repeat on one Intel hybrid CPU, one AMD CPU, and one machine without boost
    mode exposed.
 5. Record the output and the Windows build in this file.
+
+Steps 1–4 are automated by `scripts/verify_windows.py`, which produces a JSON and
+Markdown report (including the environment, every expected and actual value, and
+a pasteable row for this table). Step 5 still needs a person. The procedure,
+including what no script can check — whether the fan is actually quieter — is in
+[docs/VERIFY.md](VERIFY.md).

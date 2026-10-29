@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check the tag matches the package version
+        run: |
+          python - <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          tag = "${{ github.ref_name }}"
+          source = pathlib.Path("src/quietgovernor/__init__.py").read_text()
+          version = re.search(r'__version__ = "([^"]+)"', source).group(1)
+          pyproject = pathlib.Path("pyproject.toml").read_text()
+          declared = re.search(r'^version = "([^"]+)"', pyproject, re.MULTILINE).group(1)
+
+          if version != declared:
+              print(f"FAIL: __init__ says {version}, pyproject says {declared}")
+              sys.exit(1)
+          if tag != f"v{version}":
+              print(f"FAIL: tag {tag} does not match version v{version}")
+              sys.exit(1)
+          print(f"tag {tag} matches version {version}")
+          PY
+
+      - name: Unit tests
+        run: |
+          python -m pip install --quiet --upgrade pip
+          python -m unittest discover -s . -p "test_*.py"
+
+      - name: Build the wheel and sdist
+        run: |
+          python -m pip install --quiet --upgrade build wheel
+          python -m build
+
+      - name: Check the wheel installs and runs
+        run: |
+          python -m venv /tmp/release-check
+          /tmp/release-check/bin/pip install --quiet dist/*.whl
+          /tmp/release-check/bin/quietgovernor --version
+          /tmp/release-check/bin/quietgovernor --simulate --json status > /dev/null
+          python scripts/verify_windows.py --simulate --apply --autostart --out-dir /tmp/release-reports \
+            --cli /tmp/release-check/bin/quietgovernor
+
+      - name: Keep the build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" dist/* \
+            --title "QuietGovernor ${{ github.ref_name }}" \
+            --notes "See CHANGELOG.md for what changed. Windows API paths are verified only as far as docs/SPEC.md §9 records; docs/VERIFY.md explains how to check your own PC."

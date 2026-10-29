@@ -55,6 +55,18 @@ Simulation state lives in `<state folder>/simulated`, separate from real state.
 It is the supported way to try QuietGovernor on macOS, Linux, or a PC you would
 rather not change yet.
 
+## Installing
+
+```console
+pipx install quietgovernor      # isolated, recommended
+pip install quietgovernor       # or into a Python you manage
+py -m pip install quietgovernor # Windows launcher form
+```
+
+Prefer installing Python **for all users** if you plan to use the sign-in task:
+the privilege guard in [Optional: re-apply at sign-in](#optional-re-apply-at-sign-in)
+refuses a per-user Python, for good reason.
+
 ## Requirements
 
 | Requirement | Detail |
@@ -264,7 +276,7 @@ any Windows setting — only `restore` does.
 ## Verification status
 
 QuietGovernor labels every claim. The platform-independent logic is verified by an
-automated test suite of 200 tests that runs anywhere. The Windows API path has been
+automated test suite of 218 tests that runs anywhere. The Windows API path has been
 exercised once, on a GitHub-hosted Windows virtual machine (see below), but never
 on physical hardware and never with the resulting values inspected by a human.
 
@@ -286,10 +298,16 @@ on physical hardware and never with the resulting values inspected by a human.
 The test suite is the honest part: "Verified" above means a check ran in this
 repository and passed, and nothing else.
 
+If you want to help close the gaps, [docs/VERIFY.md](docs/VERIFY.md) has the
+procedure: one script, `py scripts/verify_windows.py --apply --autostart`, which
+records your Windows build, applies a profile, reads every value back, restores
+your originals, exercises the sign-in task, and writes a report you can attach to
+an issue. It is read-only unless you pass `--apply`.
+
 ## Development
 
 ```console
-python -m unittest discover -s . -p "test_*.py"    # 200 tests, no dependencies
+python -m unittest discover -s . -p "test_*.py"    # 218 tests, no dependencies
 python -m compileall -q src tests
 python -m quietgovernor --simulate status          # run from a checkout: PYTHONPATH=src
 ```
