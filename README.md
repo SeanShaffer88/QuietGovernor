@@ -292,7 +292,8 @@ on physical hardware and never with the resulting values inspected by a human.
 | Reading real settings on Windows | **Partially verified** | Windows-only tests in `tests/test_windows.py` and a real `status` call pass on a GitHub-hosted Windows VM (CI run 40810831546) |
 | Writing real settings on Windows | **Partially verified** | CI `apply` on that VM exits 0, which requires every write to be read back and match, then `restore` returns the values; the values themselves were not inspected |
 | Elevation detection (`IsUserAnAdmin`) | **Partially verified** | Exercised by the CI run; only the elevated case is covered |
-| `schtasks.exe` task create/query/delete, and the task XML being accepted | **Unverified** | Nothing has run it on Windows; content and well-formedness only |
+| `schtasks.exe` task create/query/delete, and the task XML being accepted | **Partially verified** | The verification harness creates, reads back, and removes the task on a CI Windows VM, and the job fails if any check fails (CI run 40812787671) |
+| The verification harness (`scripts/verify_windows.py`) | **Verified** | 19 unit tests, run in simulation on every push and on Windows in CI |
 | Physical Windows 10/11 desktop, laptop fan behaviour, vendor software conflicts | **Unverified** | No hardware run; the checklist is in `docs/SPEC.md` §9 |
 
 The test suite is the honest part: "Verified" above means a check ran in this

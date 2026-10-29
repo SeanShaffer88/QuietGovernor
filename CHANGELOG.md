@@ -22,6 +22,10 @@ All notable changes to QuietGovernor are recorded here. The format follows
 - `docs/VERIFY.md`: the operator procedure, including what no script can check
   (whether the fan is actually quieter), how to read each failure, and the second
   machine coverage worth having.
+- The Windows CI job now runs the harness as its evidence step and fails on any
+  failed check, so `schtasks.exe` and the Task Scheduler XML moved from
+  **Unverified** to **Partially verified** (virtual machine only; no human has
+  inspected the resulting values).
 - `--json status` now reports `elevated` (`null` in simulation), so a report can
   state whether writes were even possible.
 - `.github/workflows/release.yml`: on a `v*` tag, checks the tag matches the

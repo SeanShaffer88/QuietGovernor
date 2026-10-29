@@ -252,8 +252,10 @@ otherwise.
 | Behaviour on specific laptop models / vendor software conflicts | Unverified | No hardware matrix |
 | Auto-start preflight, path-trust rules, task XML, install/remove/verify | Verified | `tests/test_autostart.py` (45 tests, simulated scheduler) |
 | Auto-start consent, `--json`, and refusal without a terminal | Verified | `tests/test_cli.py` |
-| `schtasks.exe` on real Windows (create/query/delete a task) | Unverified | Needs a Windows run; the CI job attempts it and collects output |
-| Task XML accepted by Windows Task Scheduler | Unverified | Well-formedness and content are tested; schema acceptance needs Windows |
+| `schtasks.exe` on real Windows (create/query/delete a task) | Partially verified | The verification harness creates, reads back, and removes the task on a GitHub-hosted Windows VM and gates the CI job on the result (CI run 40812787671) |
+| Task XML accepted by Windows Task Scheduler | Partially verified | Implied by the same run: the task could only exist if Windows accepted the XML |
+| Verification harness itself | Verified | Exercised in simulation on every push, and on Windows by CI; 19 unit tests cover its verdicts and restore guarantees |
+| Physical Windows 10/11 hardware, fan behaviour, vendor software conflicts | Unverified | Still needs a person and a laptop; procedure in [VERIFY.md](VERIFY.md) |
 | Python 3.9, 3.11, and 3.13 compatibility | Verified | CI matrix runs the full suite on all three (CI run 40810831546) |
 | Packaging: `pip install .` and the console script | Verified | CI installs the package and runs `quietgovernor --version` before the smoke test; `scripts/smoke_simulate.py` then drives apply → status → restore |
 
