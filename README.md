@@ -9,7 +9,7 @@ video calls, builds, and browser tabs. Everything it touches is recorded first,
 previewed before it happens, verified afterwards, and reversible with one
 command.
 
-**Status: early implementation (0.3.0).** Working code, tested logic, first
+**Status: early implementation (0.3.1).** Working code, tested logic, first
 release build. Read [Verification status](#verification-status) before you rely on it
 — in particular, the Windows API path has run only on a virtual CI machine, never
 on physical hardware.
@@ -43,7 +43,7 @@ QuietGovernor can run against an in-memory PC. This exercises the real code —
 profiles, planning, storage, restore, drift detection — and touches nothing:
 
 ```console
-$ pip install ./quietgovernor-0.3.0-py3-none-any.whl   # see Installing
+$ pip install ./quietgovernor-0.3.1-py3-none-any.whl   # see Installing
 $ quietgovernor --simulate status
 $ quietgovernor --simulate plan --profile quiet
 $ quietgovernor --simulate apply --profile quiet --yes
@@ -59,10 +59,10 @@ rather not change yet.
 
 ```console
 # from the wheel attached to a release (Releases page), isolated, recommended
-pipx install ./quietgovernor-0.3.0-py3-none-any.whl
+pipx install ./quietgovernor-0.3.1-py3-none-any.whl
 
 # or into a Python you manage
-py -m pip install quietgovernor-0.3.0-py3-none-any.whl
+py -m pip install quietgovernor-0.3.1-py3-none-any.whl
 
 # or straight from a checkout
 py -m pip install .
@@ -81,7 +81,7 @@ refuses a per-user Python, for good reason.
 | Requirement | Detail |
 | --- | --- |
 | Windows | Windows 10 (1809 or later) or Windows 11 are the supported targets. The power API itself dates back to Windows Vista; older versions are untested and unsupported. |
-| Python | 3.9 or newer, 64-bit or 32-bit. `pipx install ./quietgovernor-0.3.0-py3-none-any.whl` keeps it isolated. |
+| Python | 3.9 or newer, 64-bit or 32-bit. `pipx install ./quietgovernor-0.3.1-py3-none-any.whl` keeps it isolated. |
 | Rights | **Administrator.** Windows refuses power-setting writes to standard users. Reading and previewing work without it. |
 | Firmware | Modern standby or S3 sleep, either is fine. No driver, service, or kernel component is installed. |
 
@@ -248,7 +248,7 @@ owner-read/write only.
   QuietGovernor can install is the opt-in sign-in task described above, which
   runs once at sign-in and exits. Nothing stays running.
 - **No telemetry, no network access at all.** Nothing leaves the machine.
-- **No GUI yet.** The command line is the interface in 0.3.0.
+- **No GUI yet.** The command line is the interface in 0.3.1.
 
 ## Troubleshooting
 

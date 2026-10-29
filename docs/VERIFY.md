@@ -20,7 +20,7 @@ The script is `scripts/verify_windows.py`. It is read-only unless you pass
   and install that file:
 
   ```pwsh
-  py -m pip install .\quietgovernor-0.3.0-py3-none-any.whl
+  py -m pip install .\quietgovernor-0.3.1-py3-none-any.whl
   ```
 
   The script itself ships with the source, not the wheel, so also keep a copy of
