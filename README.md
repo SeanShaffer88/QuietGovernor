@@ -155,10 +155,12 @@ it keeps clocks high, which is louder — the opposite of what this tool is for.
 Global options: `--simulate`, `--state-dir DIR`, `--json`, `--no-color`,
 `--version`. They work before or after the command name. `--yes` skips the
 confirmation question but never skips the plan. Without a terminal, nothing is
-written unless `--yes` is passed.
+written unless `--yes` is passed — and the command then exits **1**, so a script
+or scheduled task can tell that it did not apply anything.
 
 `--json` makes `status`, `plan`, `apply`, and `restore` machine-readable and
-requires `--yes` for the writing commands.
+requires `--yes` for the writing commands; without it they exit 1 rather than
+pretending to have acted.
 
 ## Optional: re-apply at sign-in
 
@@ -297,7 +299,7 @@ any Windows setting — only `restore` does.
 ## Verification status
 
 QuietGovernor labels every claim. The platform-independent logic is verified by an
-automated test suite of 246 tests that runs anywhere. The Windows API path has been
+automated test suite of 254 tests that runs anywhere. The Windows API path has been
 exercised once, on a GitHub-hosted Windows virtual machine (see below), but never
 on physical hardware and never with the resulting values inspected by a human.
 
@@ -308,7 +310,7 @@ on physical hardware and never with the resulting values inspected by a human.
 | Atomic storage, schema guards, baseline-once | **Verified** | `tests/test_store.py` |
 | Apply/restore/rollback/refusal ordering | **Verified** | `tests/test_controller.py` (47 tests, simulated backend) |
 | Auto-start preflight, path trust, install/remove/verify | **Verified** | `tests/test_autostart.py` (45 tests, simulated scheduler) |
-| CLI behaviour, exit codes, `--json`, consent | **Verified** | `tests/test_cli.py` (48 tests) |
+| CLI behaviour, exit codes, `--json`, consent | **Verified** | `tests/test_cli.py` (56 tests) |
 | GUID packing for `powrprof.dll` | **Verified** (byte layout vs `uuid`) | `tests/test_windows.py` |
 | Reading real settings on Windows | **Partially verified** | Windows-only tests in `tests/test_windows.py` and a real `status` call pass on a GitHub-hosted Windows VM (CI run 40810831546) |
 | Writing real settings on Windows | **Partially verified** | CI `apply` on that VM exits 0, which requires every write to be read back and match, then `restore` returns the values; the values themselves were not inspected |
@@ -329,7 +331,7 @@ an issue. It is read-only unless you pass `--apply`.
 ## Development
 
 ```console
-python -m unittest discover -s . -p "test_*.py"    # 246 tests, no dependencies
+python -m unittest discover -s . -p "test_*.py"    # 254 tests, no dependencies
 python -m compileall -q src tests
 python -m quietgovernor --simulate status          # run from a checkout: PYTHONPATH=src
 ```

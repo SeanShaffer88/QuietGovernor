@@ -33,6 +33,16 @@ class ActionRefused(QuietGovernorError):
     """The user (or the absence of confirmation) prevented an action."""
 
 
+class ConsentUnavailable(ActionRefused):
+    """An action needed a yes/no answer and there was no way to ask for one.
+
+    Different from a person declining. A script, a scheduled task, or a
+    ``--json`` caller that forgets ``--yes`` gets no change *and* a non-zero exit
+    status, because nobody in that run could have approved the change and silence
+    would look like success.
+    """
+
+
 class ApplyFailed(BackendError):
     """A write failed after changing at least one setting."""
 

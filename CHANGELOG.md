@@ -13,6 +13,22 @@ All notable changes to QuietGovernor are recorded here. The format follows
   It now points at the release wheel and notes that the verification script ships
   with the source, not the wheel. The README requirements table had the same
   command.
+- `quietgovernor apply` (and `autostart install`/`remove`) with no terminal and no
+  `--yes` refused to act but exited **0**, so a script or scheduled task that
+  forgot `--yes` looked successful while changing nothing. Refusing because there
+  is no way to ask now exits **1**. A person answering "no" at the prompt still
+  exits 0 — that is a decision, not a failure.
+- `--version` was documented as working before or after the command name, but
+  `quietgovernor status --version` failed with a usage error. It is now part of
+  the shared options, so it works in every position, including
+  `quietgovernor autostart install --version`.
+
+### Changed
+
+- `docs/SPEC.md` §4 spells out which exit status each kind of refusal produces,
+  and the preview row no longer implies `plan --dry-run` is a valid command
+  (`plan` is itself the preview; `--preview`/`--dry-run` belong to the commands
+  that write).
 
 ## [0.3.0] — 2026-10-29
 

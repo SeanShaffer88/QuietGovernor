@@ -77,8 +77,11 @@ These are the promises the implementation must keep. Each has tests.
 
 9. Nothing is written before the plan is shown. `--yes` skips the question, not
    the plan.
-10. Without a terminal, an apply requires `--yes`; otherwise it refuses and
-    writes nothing.
+10. Without a terminal, an apply requires `--yes`; otherwise it refuses, writes
+    nothing, and **exits 1**. A refusal that nobody could have approved is not a
+    success: a script or scheduled task must be able to see that no change
+    happened. A person answering "no" at the prompt exits 0, because that is a
+    decision rather than a failure.
 11. The baseline is recorded **after** confirmation and **before** the first
     write. A declined apply leaves no file behind.
 12. The baseline is recorded once, ever. Later applies never overwrite it.
@@ -182,7 +185,7 @@ These are the promises the implementation must keep. Each has tests.
 | Power sources | `--scope` | `both` | `ac`, `dc`, `both` |
 | Own values | `profile set --max-state/--min-state/--boost` | — | Saved and re-usable |
 | Confirmation | interactive prompt | on | `--yes` skips the question |
-| Preview | `plan`, `--preview`, `--dry-run` | — | Writes nothing |
+| Preview | `plan` (itself a preview); `--preview`/`--dry-run` on the commands that write | — | Writes nothing |
 | Reversibility | `restore` | — | Uses the recorded baseline |
 | Machine-readable output | `--json` | off | Writing commands then require `--yes` |
 | Colour | automatic, `--no-color`, `NO_COLOR` | auto | Never used for meaning alone |
@@ -194,8 +197,11 @@ These are the promises the implementation must keep. Each has tests.
 
 Accessibility: plain line-based output, no meaning conveyed by colour alone
 (every state also has words), no animation, works in a screen reader because
-output is one sentence per line, exit codes documented (0 success or deliberate
-refusal, 1 error, 2 usage, 130 interrupted).
+output is one sentence per line, exit codes documented — 0 success, including a
+person declining at the prompt; 1 error, including a change refused because there
+was no way to ask (`--json` or no terminal without `--yes`); 2 usage; 130
+interrupted. The global options (`--simulate`, `--state-dir`, `--json`,
+`--no-color`, `--version`) are accepted before or after the command name.
 
 ## 5. Non-goals
 

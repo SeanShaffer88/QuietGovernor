@@ -31,7 +31,7 @@ from .autostart import (
 )
 from .backend import SimulatedBackend
 from .controller import ApplyResult, Controller, Status
-from .errors import ActionRefused, QuietGovernorError
+from .errors import ActionRefused, ConsentUnavailable, QuietGovernorError
 from .planning import Plan
 from .policy import AC, DC, SETTINGS, WRITE_ORDER, validate_scope
 from .store import StateStore, default_state_dir
@@ -575,7 +575,7 @@ def _confirmer(args: argparse.Namespace, style: Style, verb: str):
         if getattr(args, "json", False) and not args.yes:
             # Keep stdout pure JSON: a program reading --json output cannot
             # answer a question, so asking would only corrupt its input.
-            raise ActionRefused(
+            raise ConsentUnavailable(
                 "Nothing was changed: --json output cannot answer a "
                 "confirmation question. Re-run with --yes once you have "
                 f"reviewed '{PROGRAM} plan --profile {plan.profile.name} "
@@ -589,7 +589,7 @@ def _confirmer(args: argparse.Namespace, style: Style, verb: str):
                 print("Confirmed with --yes, so the question was skipped.")
             return True
         if not sys.stdin.isatty():
-            raise ActionRefused(
+            raise ConsentUnavailable(
                 f"Nothing was changed: there is no terminal to confirm in. "
                 f"Re-run with --yes once you have reviewed the plan ("
                 f"'{PROGRAM} plan --profile {plan.profile.name}' shows it "
@@ -809,7 +809,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
 
     def confirm(plan: AutostartPlan) -> bool:
         if args.json and not args.yes:
-            raise ActionRefused(
+            raise ConsentUnavailable(
                 "Nothing was changed: --json output cannot answer a confirmation "
                 "question. Re-run with --yes once you have reviewed "
                 f"'{PROGRAM} autostart install --profile {profile} --preview'."
@@ -822,7 +822,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
                 print("Confirmed with --yes, so the question was skipped.")
             return True
         if not sys.stdin.isatty():
-            raise ActionRefused(
+            raise ConsentUnavailable(
                 "Nothing was changed: there is no terminal to confirm in. Re-run "
                 "with --yes once you have reviewed the plan."
             )
@@ -875,7 +875,7 @@ def cmd_autostart_remove(args: argparse.Namespace) -> int:
 
     def confirm(plan: AutostartPlan) -> bool:
         if args.json and not args.yes:
-            raise ActionRefused(
+            raise ConsentUnavailable(
                 "Nothing was changed: --json output cannot answer a confirmation "
                 "question. Re-run with --yes to remove the task."
             )
@@ -886,7 +886,7 @@ def cmd_autostart_remove(args: argparse.Namespace) -> int:
         if args.yes:
             return True
         if not sys.stdin.isatty():
-            raise ActionRefused(
+            raise ConsentUnavailable(
                 "Nothing was changed: there is no terminal to confirm in. Re-run "
                 "with --yes to remove the task."
             )
@@ -1035,6 +1035,12 @@ def _common_options() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help="never use terminal colours",
     )
+    common.add_argument(
+        "--version",
+        action="version",
+        version=f"{PROGRAM} {__version__}",
+        help="show the version and exit",
+    )
     return common
 
 
@@ -1067,8 +1073,6 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[common],
     )
-    parser.add_argument("--version", action="version", version=f"{PROGRAM} {__version__}")
-
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
 
     def add(name: str, **kwargs):
@@ -1220,6 +1224,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     try:
         return int(args.func(args))
+    except ConsentUnavailable as refusal:
+        # Nothing was changed, but the caller asked for a change and could not
+        # have approved it: a zero exit status would read as success in a script.
+        print(f"{refusal}", file=sys.stderr)
+        return 1
     except ActionRefused as refusal:
         print(f"{refusal}", file=sys.stderr)
         return 0

@@ -128,7 +128,9 @@ class TestSimulatedFlow(unittest.TestCase):
     def test_apply_without_a_terminal_refuses_instead_of_guessing(self) -> None:
         # stdin in a test run is not a tty, so confirmation is impossible.
         code, out, err = simulate("apply", "--profile", "quiet")
-        self.assertEqual(code, 0)
+        # 1, not 0: the caller asked for a change and could not approve it, so a
+        # script must be able to tell that nothing happened.
+        self.assertEqual(code, 1)
         # The plan is still shown, so the user can see what was refused.
         self.assertIn("would change", out)
         self.assertIn("no terminal to confirm", err)
@@ -314,7 +316,7 @@ class TestAutostartCommands(unittest.TestCase):
     def test_install_requires_confirmation_without_yes(self) -> None:
         # No terminal in a test run, so it must refuse rather than assume.
         code, out, err = simulate("autostart", "install")
-        self.assertEqual(code, 0)
+        self.assertEqual(code, 1)
         self.assertIn("no terminal to confirm", err)
         code, out, _err = simulate("status")
         self.assertIn("Not installed", out)
@@ -560,3 +562,105 @@ class TestProfileNameAndPlanReporting(unittest.TestCase):
         code, out, _err = simulate("status")
         self.assertEqual(code, 0)
         self.assertNotIn("not the one this profile was applied to", out)
+
+
+class TestConsentExitCodes(unittest.TestCase):
+    """A change that could not be approved must not exit 0."""
+
+    def setUp(self) -> None:
+        import os
+        import tempfile
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self._env = os.environ.get("QUIETGOVERNOR_STATE_DIR")
+        os.environ["QUIETGOVERNOR_STATE_DIR"] = self._tmp.name
+
+    def tearDown(self) -> None:
+        import os
+
+        if self._env is None:
+            os.environ.pop("QUIETGOVERNOR_STATE_DIR", None)
+        else:
+            os.environ["QUIETGOVERNOR_STATE_DIR"] = self._env
+
+    def test_apply_without_a_terminal_exits_non_zero(self) -> None:
+        code, _out, err = simulate("apply", "--profile", "quiet")
+        self.assertEqual(code, 1)
+        self.assertIn("Nothing was changed", err)
+
+    def test_apply_json_without_yes_exits_non_zero(self) -> None:
+        code, out, err = simulate("apply", "--profile", "quiet", "--json")
+        self.assertEqual(code, 1)
+        self.assertEqual(out.strip(), "", "stdout must stay pure JSON")
+        self.assertIn("--json output cannot answer", err)
+
+    def test_autostart_install_without_a_terminal_exits_non_zero(self) -> None:
+        code, _out, err = simulate("autostart", "install", "--profile", "quiet")
+        self.assertEqual(code, 1)
+        self.assertIn("Nothing was changed", err)
+
+    def test_declining_at_the_keyboard_is_still_success(self) -> None:
+        # A person answered; that is a deliberate choice, not a failure.
+        with mock.patch.object(sys, "stdin", TtyStdin("no\n")), mock.patch.object(
+            builtins, "input", return_value="no"
+        ):
+            code, _out, err = run_cli(["--simulate", "apply", "--profile", "quiet"])
+        self.assertEqual(code, 0)
+        self.assertIn("Nothing was changed", err)
+
+    def test_nothing_is_written_when_consent_is_unavailable(self) -> None:
+        simulate("apply", "--profile", "quiet")
+        code, out, _err = simulate("status")
+        self.assertEqual(code, 0)
+        self.assertIn("Not managing this PC", out)
+
+
+class TestGlobalOptionsAnywhere(unittest.TestCase):
+    """The README promises the global options work before or after the command."""
+
+    def test_version_after_the_command(self) -> None:
+        for argv in (["status", "--version"], ["autostart", "install", "--version"]):
+            with self.assertRaises(SystemExit) as caught:
+                run_cli(argv)
+            self.assertEqual(caught.exception.code, 0)
+
+    def test_common_options_after_a_nested_subcommand(self) -> None:
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.get("QUIETGOVERNOR_STATE_DIR")
+            os.environ["QUIETGOVERNOR_STATE_DIR"] = tmp
+            try:
+                code, out, err = run_cli(["autostart", "install", "--preview", "--simulate"])
+                self.assertEqual(code, 0, err)
+                self.assertIn("Simulation mode", out)
+            finally:
+                if env is None:
+                    os.environ.pop("QUIETGOVERNOR_STATE_DIR", None)
+                else:
+                    os.environ["QUIETGOVERNOR_STATE_DIR"] = env
+
+    def test_documented_preview_forms_work(self) -> None:
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.get("QUIETGOVERNOR_STATE_DIR")
+            os.environ["QUIETGOVERNOR_STATE_DIR"] = tmp
+            try:
+                for argv in (
+                    ["--simulate", "apply", "--profile", "quiet", "--preview"],
+                    ["--simulate", "apply", "--profile", "quiet", "--dry-run"],
+                    ["--simulate", "autostart", "install", "--preview"],
+                    ["--simulate", "autostart", "install", "--dry-run"],
+                    ["--simulate", "autostart", "remove", "--preview"],
+                ):
+                    code, _out, err = run_cli(list(argv))
+                    self.assertEqual(code, 0, f"{argv}: {err}")
+            finally:
+                if env is None:
+                    os.environ.pop("QUIETGOVERNOR_STATE_DIR", None)
+                else:
+                    os.environ["QUIETGOVERNOR_STATE_DIR"] = env
