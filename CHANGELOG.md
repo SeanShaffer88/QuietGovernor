@@ -29,8 +29,6 @@ All notable changes to QuietGovernor are recorded here. The format follows
 
 ### Added
 
-### Added
-
 - `scripts/verify_windows.py`: runs the `docs/SPEC.md` §9 hardware checklist on a
   real PC and writes a JSON plus Markdown report (environment, Windows build,
   elevation, expected and actual value for every setting, and a pasteable row for
