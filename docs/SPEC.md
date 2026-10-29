@@ -77,8 +77,11 @@ These are the promises the implementation must keep. Each has tests.
 
 9. Nothing is written before the plan is shown. `--yes` skips the question, not
    the plan.
-10. Without a terminal, an apply requires `--yes`; otherwise it refuses and
-    writes nothing.
+10. Without a terminal, an apply requires `--yes`; otherwise it refuses, writes
+    nothing, and **exits 1**. A refusal that nobody could have approved is not a
+    success: a script or scheduled task must be able to see that no change
+    happened. A person answering "no" at the prompt exits 0, because that is a
+    decision rather than a failure.
 11. The baseline is recorded **after** confirmation and **before** the first
     write. A declined apply leaves no file behind.
 12. The baseline is recorded once, ever. Later applies never overwrite it.
@@ -93,13 +96,22 @@ These are the promises the implementation must keep. Each has tests.
 
 ### 3.4 Restoring
 
-17. `restore` writes the recorded baseline values into the active plan and then
-    stops managing the machine (`state.json` is removed).
-18. The baseline file is kept after a restore, so the original values remain
+17. `restore` writes the recorded baseline values back into the power plan they
+    were recorded from, then stops managing the machine (`state.json` is removed).
+    A plan is where the values live; restoring somewhere else would undo nothing.
+18. If a different power plan is active, `restore` **refuses** (exit 1) and names
+    both plans plus the two ways forward: switch to the plan that was changed and
+    run it again, or pass `--into-active-plan`. Writing the recorded values into
+    an unrelated plan, then reporting success and forgetting the change, is
+    exactly the silent failure this project exists to avoid.
+19. `restore --into-active-plan` writes into the active plan anyway, says so, and
+    names the plan it leaves alone. The baseline is kept, so going back to the
+    original plan and running `restore` there still finishes the job.
+20. The baseline file is kept after a restore, so the original values remain
     available.
-19. `restore` with no baseline fails with "nothing to undo" and changes nothing.
-20. `restore` after a power-plan switch writes the recorded values into the plan
-    that is active now and says so in the plan notes.
+20a. `restore` with no baseline fails with "nothing to undo" and changes nothing.
+20b. `restore --preview` after a plan switch lists the changes and explains the
+    refusal instead of failing.
 21. `restore` refuses a stale plan exactly like `apply` (point 13).
 
 ### 3.5 Reporting
@@ -182,8 +194,8 @@ These are the promises the implementation must keep. Each has tests.
 | Power sources | `--scope` | `both` | `ac`, `dc`, `both` |
 | Own values | `profile set --max-state/--min-state/--boost` | — | Saved and re-usable |
 | Confirmation | interactive prompt | on | `--yes` skips the question |
-| Preview | `plan`, `--preview`, `--dry-run` | — | Writes nothing |
-| Reversibility | `restore` | — | Uses the recorded baseline |
+| Preview | `plan` (itself a preview); `--preview`/`--dry-run` on the commands that write | — | Writes nothing |
+| Reversibility | `restore`, `restore --into-active-plan` | — | Uses the recorded baseline, in the plan that holds it |
 | Machine-readable output | `--json` | off | Writing commands then require `--yes` |
 | Colour | automatic, `--no-color`, `NO_COLOR` | auto | Never used for meaning alone |
 | State location | `--state-dir`, `QUIETGOVERNOR_STATE_DIR` | `%LOCALAPPDATA%` | |
@@ -194,8 +206,11 @@ These are the promises the implementation must keep. Each has tests.
 
 Accessibility: plain line-based output, no meaning conveyed by colour alone
 (every state also has words), no animation, works in a screen reader because
-output is one sentence per line, exit codes documented (0 success or deliberate
-refusal, 1 error, 2 usage, 130 interrupted).
+output is one sentence per line, exit codes documented — 0 success, including a
+person declining at the prompt; 1 error, including a change refused because there
+was no way to ask (`--json` or no terminal without `--yes`); 2 usage; 130
+interrupted. The global options (`--simulate`, `--state-dir`, `--json`,
+`--no-color`, `--version`) are accepted before or after the command name.
 
 ## 5. Non-goals
 

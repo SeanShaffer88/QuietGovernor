@@ -15,7 +15,13 @@ from dataclasses import dataclass
 from typing import Callable, Mapping
 
 from .backend import PowerBackend, drift, read_all
-from .errors import ActionRefused, ApplyFailed, BackendError, QuietGovernorError
+from .errors import (
+    ActionRefused,
+    ApplyFailed,
+    BackendError,
+    PlanNotActive,
+    QuietGovernorError,
+)
 from .planning import (
     Baseline,
     Change,
@@ -279,8 +285,12 @@ class Controller:
                 notes.append(
                     f"The original values were recorded in power plan "
                     f"'{baseline.scheme_name}', but '{scheme_name}' is active now. "
-                    f"Restore writes the recorded values into the active plan; "
-                    f"the other plan is not modified."
+                    f"Windows keeps these settings per plan, so writing them into "
+                    f"'{scheme_name}' would not undo the change in "
+                    f"'{baseline.scheme_name}'. Restore refuses while that is true: "
+                    f"switch to '{baseline.scheme_name}' and run it again, or pass "
+                    f"--into-active-plan to restore the values into the plan that is "
+                    f"active now."
                 )
             return plan_for_writes(profile, scheme_guid, scheme_name, live, notes)
         profile = self.get_profile(profile_name)
@@ -353,7 +363,9 @@ class Controller:
                 f"Your original settings were recorded in power plan "
                 f"'{existing_baseline.scheme_name}', but '{scheme_name}' is "
                 f"active now. The restore point is kept as it was; 'restore' "
-                f"writes it into the active plan."
+                f"will refuse while that is true, so switch to "
+                f"'{existing_baseline.scheme_name}' to undo that change, or pass "
+                f"--into-active-plan."
             )
         if notes != list(plan.notes):
             plan = _with_notes(plan, notes)
@@ -422,8 +434,20 @@ class Controller:
             dry_run=False,
         )
 
-    def restore(self, *, dry_run: bool = False, confirm: Confirmer | None = None) -> ApplyResult:
-        """Write the recorded baseline back and stop governing."""
+    def restore(
+        self,
+        *,
+        dry_run: bool = False,
+        confirm: Confirmer | None = None,
+        into_active_plan: bool = False,
+    ) -> ApplyResult:
+        """Write the recorded baseline back and stop governing.
+
+        The values were changed in a particular power plan. If a different plan
+        is active now, writing the baseline into it would undo nothing that
+        QuietGovernor did while looking like a successful restore, so that is
+        refused unless ``into_active_plan`` says the user means it.
+        """
         baseline = self.store.load_baseline()
         if baseline is None:
             raise QuietGovernorError(
@@ -433,6 +457,39 @@ class Controller:
             )
         readings = read_all(self.backend)
         plan = self.plan(RESTORE_PROFILE_NAME, readings=readings)
+
+        active_guid, active_name = self.backend.active_scheme()
+        switched = bool(baseline.scheme_guid) and baseline.scheme_guid != active_guid
+        if switched and not into_active_plan:
+            if not dry_run:
+                raise PlanNotActive(
+                    f"Nothing was changed. These settings were changed in the "
+                    f"'{baseline.scheme_name}' power plan, but '{active_name}' is "
+                    f"active now. Windows keeps them per plan, so restoring into "
+                    f"'{active_name}' would not undo the change in "
+                    f"'{baseline.scheme_name}', which would stay as QuietGovernor "
+                    f"left it. Switch to '{baseline.scheme_name}' and run "
+                    f"'quietgovernor restore' again, or run "
+                    f"'quietgovernor restore --into-active-plan' to write the recorded "
+                    f"values into '{active_name}' and stop managing either way."
+                )
+            return ApplyResult(
+                plan=plan,
+                applied=(),
+                verified=False,
+                baseline_created=False,
+                baseline_path=str(self.store.baseline_path),
+                dry_run=True,
+            )
+        if switched and into_active_plan:
+            plan = _with_notes(
+                plan,
+                [
+                    *plan.notes,
+                    f"Restoring into '{active_name}' because --into-active-plan was "
+                    f"given; '{baseline.scheme_name}' keeps whatever values it holds now.",
+                ],
+            )
 
         if dry_run:
             return ApplyResult(

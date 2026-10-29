@@ -81,6 +81,12 @@ one of these is a regression, not a trade-off.
 18. `status` must name the cause of a mismatch: a changed power plan is not
     drift, and an apply that has nothing to write must still be able to clear a
     stale plan record.
+19. A change refused because the tool could not ask for consent (no terminal,
+    `--json` without `--yes`) exits 1, not 0. Only a person declining at the
+    prompt is a success with no work done.
+20. `restore` never writes into a plan other than the one the values came from
+    unless `--into-active-plan` says so, and never claims the machine is back to
+    normal while another plan still holds what QuietGovernor wrote.
 
 ### Verification harness and releases
 

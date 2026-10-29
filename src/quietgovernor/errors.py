@@ -33,6 +33,26 @@ class ActionRefused(QuietGovernorError):
     """The user (or the absence of confirmation) prevented an action."""
 
 
+class ConsentUnavailable(ActionRefused):
+    """An action needed a yes/no answer and there was no way to ask for one.
+
+    Different from a person declining. A script, a scheduled task, or a
+    ``--json`` caller that forgets ``--yes`` gets no change *and* a non-zero exit
+    status, because nobody in that run could have approved the change and silence
+    would look like success.
+    """
+
+
+class PlanNotActive(QuietGovernorError):
+    """The power plan that holds the recorded values is not the active plan.
+
+    Windows keeps these settings per plan, so writing the recorded values into
+    the active plan would leave the change in the other plan untouched while
+    reporting success. Restore refuses instead, unless the caller asks for the
+    active plan explicitly.
+    """
+
+
 class ApplyFailed(BackendError):
     """A write failed after changing at least one setting."""
 

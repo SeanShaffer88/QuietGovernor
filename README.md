@@ -143,7 +143,8 @@ it keeps clocks high, which is louder — the opposite of what this tool is for.
 | `plan --profile NAME` | Show the exact plan, explanations, and warnings | No |
 | `apply --profile NAME` | Show the plan, ask, then write and verify | Yes |
 | `apply --profile NAME --preview` | Same as `plan`, for muscle memory | No |
-| `restore` | Write the recorded original values back | Yes |
+| `restore` | Write the recorded original values back, in the plan they came from | Yes |
+| `restore --into-active-plan` | …into the plan that is active now, leaving the other plan alone | Yes |
 | `restore --preview` | Show what restore would change | No |
 | `profile set NAME --max-state 70` | Save your own profile | No |
 | `profile show NAME` / `profile delete NAME` | Inspect or remove a saved profile | No |
@@ -155,10 +156,12 @@ it keeps clocks high, which is louder — the opposite of what this tool is for.
 Global options: `--simulate`, `--state-dir DIR`, `--json`, `--no-color`,
 `--version`. They work before or after the command name. `--yes` skips the
 confirmation question but never skips the plan. Without a terminal, nothing is
-written unless `--yes` is passed.
+written unless `--yes` is passed — and the command then exits **1**, so a script
+or scheduled task can tell that it did not apply anything.
 
 `--json` makes `status`, `plan`, `apply`, and `restore` machine-readable and
-requires `--yes` for the writing commands.
+requires `--yes` for the writing commands; without it they exit 1 rather than
+pretending to have acted.
 
 ## Optional: re-apply at sign-in
 
@@ -258,6 +261,15 @@ changed by the failed attempt.
 Normal on many desktops, virtual machines, and CPUs without turbo. That one
 setting is skipped and everything else still applies.
 
+**`restore` says it will not run because a different power plan is active.**
+Windows keeps these settings per plan, so the values QuietGovernor wrote live in
+the plan it wrote them to; restoring into the plan you are using now would undo
+nothing and quietly leave the other plan capped. Switch to the plan named in the
+message and run `quietgovernor restore` again — or run
+`quietgovernor restore --into-active-plan` if you want the recorded values in the
+plan you are using now and do not care about the other one (the restore point is
+kept either way, so you can still clear the other plan later).
+
 **`status` says the active power plan is not the one the profile was applied to.**
 You switched Windows power plans. QuietGovernor writes into the plan that is
 active and does not change your plan choice, so the values it set live in the
@@ -297,7 +309,7 @@ any Windows setting — only `restore` does.
 ## Verification status
 
 QuietGovernor labels every claim. The platform-independent logic is verified by an
-automated test suite of 246 tests that runs anywhere. The Windows API path has been
+automated test suite of 262 tests that runs anywhere. The Windows API path has been
 exercised once, on a GitHub-hosted Windows virtual machine (see below), but never
 on physical hardware and never with the resulting values inspected by a human.
 
@@ -306,9 +318,9 @@ on physical hardware and never with the resulting values inspected by a human.
 | Profiles, ranges, scope, explanations | **Verified** | `tests/test_policy.py`, `tests/test_planning.py` |
 | Planning, warnings, notes, drift maths | **Verified** | `tests/test_planning.py`, `tests/test_controller.py` |
 | Atomic storage, schema guards, baseline-once | **Verified** | `tests/test_store.py` |
-| Apply/restore/rollback/refusal ordering | **Verified** | `tests/test_controller.py` (47 tests, simulated backend) |
+| Apply/restore/rollback/refusal ordering | **Verified** | `tests/test_controller.py` (51 tests, simulated backend) |
 | Auto-start preflight, path trust, install/remove/verify | **Verified** | `tests/test_autostart.py` (45 tests, simulated scheduler) |
-| CLI behaviour, exit codes, `--json`, consent | **Verified** | `tests/test_cli.py` (48 tests) |
+| CLI behaviour, exit codes, `--json`, consent | **Verified** | `tests/test_cli.py` (60 tests) |
 | GUID packing for `powrprof.dll` | **Verified** (byte layout vs `uuid`) | `tests/test_windows.py` |
 | Reading real settings on Windows | **Partially verified** | Windows-only tests in `tests/test_windows.py` and a real `status` call pass on a GitHub-hosted Windows VM (CI run 40810831546) |
 | Writing real settings on Windows | **Partially verified** | CI `apply` on that VM exits 0, which requires every write to be read back and match, then `restore` returns the values; the values themselves were not inspected |
@@ -329,7 +341,7 @@ an issue. It is read-only unless you pass `--apply`.
 ## Development
 
 ```console
-python -m unittest discover -s . -p "test_*.py"    # 246 tests, no dependencies
+python -m unittest discover -s . -p "test_*.py"    # 262 tests, no dependencies
 python -m compileall -q src tests
 python -m quietgovernor --simulate status          # run from a checkout: PYTHONPATH=src
 ```
