@@ -279,6 +279,45 @@ def validate_scope(scope: str) -> str:
     return scope
 
 
+#: Saved profile names are typed on a command line and stored as JSON keys, so
+#: they are restricted to something unambiguous: no spaces to quote, no leading
+#: punctuation, nothing that needs escaping.
+PROFILE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+PROFILE_NAME_MAX = 40
+
+
+def validate_profile_name(name: object) -> str:
+    """Return the trimmed name, or raise with a message that shows a good one.
+
+    Rejects empty names, spaces (they force quoting and invite typos), leading
+    punctuation, and anything long enough to be unusable in a listing.
+    """
+    if not isinstance(name, str):
+        raise PolicyError(
+            f"A profile name must be text, got {type(name).__name__}. "
+            "Use something short like 'night' or 'meetings'."
+        )
+    trimmed = name.strip()
+    if not trimmed:
+        raise PolicyError(
+            "A profile name cannot be empty. Use something short like 'night' "
+            "or 'meetings'."
+        )
+    if len(trimmed) > PROFILE_NAME_MAX:
+        raise PolicyError(
+            f"A profile name can be at most {PROFILE_NAME_MAX} characters, and "
+            f"{trimmed!r} is {len(trimmed)}. Pick a shorter one."
+        )
+    if not PROFILE_NAME_PATTERN.match(trimmed):
+        example = re.sub(r"[^A-Za-z0-9._-]+", "-", trimmed).strip("-._") or "night"
+        raise PolicyError(
+            f"{trimmed!r} cannot be a profile name: use letters and digits, with "
+            "dashes, dots, or underscores, starting with a letter or digit. Try "
+            f"'{example.lower()}'."
+        )
+    return trimmed
+
+
 def validate_value(setting_key: str, value: object) -> int:
     """Validate a single setting value, raising ValueError with a fix path."""
     try:

@@ -326,6 +326,33 @@ class TestUserProfiles(ControllerTestCase):
             self.controller.delete_profile("quiet")
         self.assertIn("built-in", str(caught.exception))
 
+    def test_saving_under_a_built_in_name_is_refused(self) -> None:
+        # Otherwise the built-in would be shadowed everywhere and the saved
+        # profile could never be removed by name.
+        for name in ("quiet", "Quiet", "restore"):
+            with self.subTest(name=name):
+                with self.assertRaises(QuietGovernorError) as caught:
+                    self.controller.save_profile(name, {"max_state": {AC: 50, DC: 50}})
+                message = str(caught.exception)
+                self.assertIn("built-in profile", message)
+                self.assertIn("another name", message)
+        self.assertEqual(self.store.load_user_profiles(), {})
+        self.assertEqual(self.controller.get_profile("quiet").origin, "built-in")
+
+    def test_invalid_profile_names_are_refused(self) -> None:
+        with self.assertRaises(QuietGovernorError) as caught:
+            self.controller.save_profile("has space", {"max_state": {AC: 50, DC: 50}})
+        self.assertIn("cannot be a profile name", str(caught.exception))
+
+    def test_a_legacy_shadowing_profile_can_still_be_deleted(self) -> None:
+        # Written by 0.2.0, before names were checked against built-ins.
+        self.store.save_user_profiles(
+            {"quiet": {"name": "quiet", "description": "old", "values": {"max_state": {AC: 50}}, "origin": "user"}}
+        )
+        self.assertEqual(self.controller.get_profile("quiet").origin, "user")
+        self.controller.delete_profile("quiet")
+        self.assertEqual(self.controller.get_profile("quiet").origin, "built-in")
+
     def test_deleting_a_missing_profile_explains_itself(self) -> None:
         with self.assertRaises(QuietGovernorError) as caught:
             self.controller.delete_profile("ghost")
@@ -384,3 +411,63 @@ class TestPlanSwitchDuringConfirmation(ControllerTestCase):
         state = self.store.load_state()
         assert state is not None
         self.assertTrue(state.is_governing)
+
+
+class TestPlanSwitchReporting(ControllerTestCase):
+    """Switching power plans is not the same as something overriding a value."""
+
+    def switch_plan(self, name: str = "High performance", guid: str = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c") -> None:
+        self.backend.scheme_name = name
+        self.backend.scheme_guid = guid
+
+    def test_same_plan_is_not_reported_as_a_change(self) -> None:
+        self.controller.apply("quiet", confirm=lambda plan: True)
+        status = self.controller.status()
+        self.assertFalse(status.plan_changed)
+        self.assertTrue(status.governing)
+
+    def test_switching_plans_is_reported_as_a_plan_change(self) -> None:
+        self.controller.apply("quiet", confirm=lambda plan: True)
+        self.switch_plan()
+        status = self.controller.status()
+        self.assertTrue(status.plan_changed)
+        assert status.state is not None
+        self.assertEqual(status.state.scheme_name, "Balanced")
+        self.assertEqual(status.scheme_name, "High performance")
+
+    def test_no_state_means_no_plan_change(self) -> None:
+        self.switch_plan()
+        self.assertFalse(self.controller.status().plan_changed)
+
+    def test_drift_is_still_measured_but_the_cause_is_named(self) -> None:
+        # The values in the new plan differ from what was managed in the old one.
+        self.controller.apply("quiet", confirm=lambda plan: True)
+        self.backend._values["max_state"] = {AC: 100, DC: 100}
+        self.switch_plan()
+        status = self.controller.status()
+        self.assertTrue(status.plan_changed)
+        self.assertEqual(len(status.drift), 2, "the difference is still reported")
+
+    def test_reapplying_to_the_new_plan_clears_the_flag(self) -> None:
+        self.controller.apply("quiet", confirm=lambda plan: True)
+        self.switch_plan()
+        self.controller.apply("quiet", confirm=lambda plan: True)
+        status = self.controller.status()
+        self.assertFalse(status.plan_changed)
+        self.assertTrue(status.governing)
+        assert status.state is not None
+        self.assertEqual(status.state.scheme_name, "High performance")
+
+    def test_reapplying_when_the_new_plan_already_matches_repoints_the_record(self) -> None:
+        # The profile's values already hold in the new plan, so apply has nothing
+        # to write. The record must still move to the active plan, or status
+        # would keep advising an apply that does nothing.
+        self.controller.apply("quiet", confirm=lambda plan: True)
+        self.switch_plan()
+        result = self.controller.apply("quiet", confirm=lambda plan: True)
+        self.assertFalse(result.changed)
+        status = self.controller.status()
+        self.assertFalse(status.plan_changed)
+        assert status.state is not None
+        self.assertEqual(status.state.scheme_name, "High performance")
+        self.assertTrue(status.state.is_governing)

@@ -480,3 +480,83 @@ class TestStatusJsonEnvironment(unittest.TestCase):
                     os.environ["QUIETGOVERNOR_STATE_DIR"] = saved
         self.assertEqual(code, 0)
         self.assertIsNone(json.loads(out)["elevated"])
+
+
+class TestProfileNameAndPlanReporting(unittest.TestCase):
+    def setUp(self) -> None:
+        import os
+        import tempfile
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self._env = os.environ.get("QUIETGOVERNOR_STATE_DIR")
+        os.environ["QUIETGOVERNOR_STATE_DIR"] = self._tmp.name
+
+    def tearDown(self) -> None:
+        import os
+
+        if self._env is None:
+            os.environ.pop("QUIETGOVERNOR_STATE_DIR", None)
+        else:
+            os.environ["QUIETGOVERNOR_STATE_DIR"] = self._env
+
+    def test_saving_under_a_built_in_name_explains_the_fix(self) -> None:
+        code, _out, err = simulate("profile", "set", "quiet", "--max-state", "50")
+        self.assertEqual(code, 1)
+        self.assertIn("built-in profile", err)
+        self.assertIn("quiet-mine", err)
+        # The built-in is untouched.
+        code, out, _err = simulate("profile", "show", "quiet")
+        self.assertEqual(code, 0)
+        self.assertIn("Origin: built-in", out)
+
+    def test_a_name_with_spaces_is_refused_with_a_suggestion(self) -> None:
+        code, _out, err = simulate("profile", "set", "quiet mode", "--max-state", "50")
+        self.assertEqual(code, 1)
+        self.assertIn("cannot be a profile name", err)
+        self.assertIn("quiet-mode", err)
+
+    def test_deleting_a_built_in_still_says_why(self) -> None:
+        code, _out, err = simulate("profile", "delete", "restore")
+        self.assertEqual(code, 1)
+        self.assertIn("built-in", err)
+
+    def test_status_names_a_power_plan_change_instead_of_drift(self) -> None:
+        import json as jsonlib
+        import pathlib
+
+        simulate("apply", "--profile", "quiet", "--yes")
+        machine = pathlib.Path(self._tmp.name) / "simulated" / "simulated-machine.json"
+        payload = jsonlib.loads(machine.read_text(encoding="utf-8"))
+        payload["scheme_guid"] = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
+        payload["scheme_name"] = "High performance"
+        machine.write_text(jsonlib.dumps(payload), encoding="utf-8")
+
+        code, out, _err = simulate("status")
+        self.assertEqual(code, 0)
+        self.assertIn("not the one this profile was applied to", out)
+        self.assertIn("Applied to: Balanced", out)
+        self.assertIn("Active now: High performance", out)
+        self.assertNotIn("something else changed them", out)
+        self.assertNotIn("Every managed setting matches", out)
+
+        code, out, _err = simulate("status", "--json")
+        payload = jsonlib.loads(out)
+        self.assertTrue(payload["plan_changed"])
+        self.assertEqual(payload["applied_to_plan"]["name"], "Balanced")
+
+    def test_reapplying_clears_the_plan_change_notice(self) -> None:
+        import json as jsonlib
+        import pathlib
+
+        simulate("apply", "--profile", "quiet", "--yes")
+        machine = pathlib.Path(self._tmp.name) / "simulated" / "simulated-machine.json"
+        payload = jsonlib.loads(machine.read_text(encoding="utf-8"))
+        payload["scheme_guid"] = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
+        payload["scheme_name"] = "High performance"
+        machine.write_text(jsonlib.dumps(payload), encoding="utf-8")
+
+        simulate("apply", "--profile", "quiet", "--yes")
+        code, out, _err = simulate("status")
+        self.assertEqual(code, 0)
+        self.assertNotIn("not the one this profile was applied to", out)

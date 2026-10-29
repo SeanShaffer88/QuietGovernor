@@ -392,6 +392,20 @@ def phase_write(cli: Cli, report: Report, profile: str) -> None:
                 actual=drift,
             )
         )
+        report.add(
+            Check(
+                "the record points at the plan that is active",
+                ok=not after.get("plan_changed"),
+                detail=(
+                    "status agrees the profile governs the power plan that is active, "
+                    "rather than a plan that has since been switched away from."
+                ),
+                actual={
+                    "plan_changed": after.get("plan_changed"),
+                    "applied_to_plan": after.get("applied_to_plan"),
+                },
+            )
+        )
     finally:
         if applied:
             _restore(cli, report, baseline_values, before_restore_point)

@@ -108,6 +108,13 @@ These are the promises the implementation must keep. Each has tests.
 23. If a managed value no longer matches, `status` reports it as drift with the
     live value, the expected value, and the two ways to fix it. It never
     silently re-applies.
+23a. If the active power plan is not the plan the profile was applied to,
+    `status` says *that* instead of calling it drift, and names both plans.
+    Windows keeps these settings per plan, so a plan switch is not an override.
+    `--json` exposes it as `plan_changed` plus `applied_to_plan`.
+23b. Applying when the active plan already matches the profile re-points the
+    record at the active plan, so the message stops advising an apply that has
+    nothing left to do.
 
 ### 3.6 Profiles
 
@@ -120,6 +127,13 @@ These are the promises the implementation must keep. Each has tests.
     `on`, `aggressive`, `efficient`, plus the two `-guaranteed` variants), and
     minimum must not exceed maximum for the same power source. Messages state the
     accepted range and what to do.
+27a. A saved profile name is 1–40 characters of letters, digits, `.`, `_`, or
+    `-`, starting with a letter or digit, trimmed of surrounding spaces. Spaces
+    and other characters are refused with a suggested name.
+27b. A saved profile cannot take a built-in name (matched case-insensitively),
+    because it would shadow the built-in and could never be deleted by name.
+    A profile saved under such a name by an earlier version can still be
+    deleted, which restores the built-in.
 
 ### 3.7 Sign-in auto-start (optional, off by default)
 

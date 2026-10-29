@@ -307,7 +307,26 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"  Managing: {status.state.profile_name} profile")
         if status.state.applied_at:
             print(f"  Applied:  {status.state.applied_at}")
-        if status.drift:
+        if status.plan_changed:
+            print(
+                "  "
+                + style.warn(
+                    "The active power plan is not the one this profile was applied "
+                    "to. Windows keeps these settings per plan, so the numbers "
+                    "below come from a different plan and do not mean the profile "
+                    "was overridden."
+                )
+            )
+            print(
+                f"    Applied to: {status.state.scheme_name or 'an unnamed plan'} "
+                f"({status.state.scheme_guid})"
+            )
+            print(f"    Active now: {status.scheme_name} ({status.scheme_guid})")
+            print(
+                f"    To govern the plan you are using now: {PROGRAM} apply "
+                f"--profile {status.state.profile_name}"
+            )
+        if status.drift and not status.plan_changed:
             print(
                 "  "
                 + style.warn(
@@ -325,7 +344,7 @@ def cmd_status(args: argparse.Namespace) -> int:
                 "    Re-apply the profile to restore it, or run "
                 f"'{PROGRAM} restore' to go back to your original settings."
             )
-        else:
+        elif not status.plan_changed:
             print("  Every managed setting matches what was applied.")
     else:
         print("  Not managing this PC: no profile is applied.")
@@ -425,6 +444,15 @@ def _status_dict(status: Status, *, simulated: bool = False) -> dict:
         "governing": status.governing,
         "profile": status.state.profile_name if status.state else None,
         "applied_at": status.state.applied_at if status.state else None,
+        "plan_changed": status.plan_changed,
+        "applied_to_plan": (
+            {
+                "guid": status.state.scheme_guid,
+                "name": status.state.scheme_name,
+            }
+            if status.state and status.state.scheme_guid
+            else None
+        ),
         "settings": {
             key: {
                 "label": SETTINGS[key].label,
