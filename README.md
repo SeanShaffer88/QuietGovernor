@@ -9,7 +9,7 @@ video calls, builds, and browser tabs. Everything it touches is recorded first,
 previewed before it happens, verified afterwards, and reversible with one
 command.
 
-**Status: early implementation (0.1.0).** Working code, tested logic, no release
+**Status: early implementation (0.2.0).** Working code, tested logic, no release
 build yet. Read [Verification status](#verification-status) before you rely on it
 — in particular, the Windows API path has run only on a virtual CI machine, never
 on physical hardware.
@@ -32,6 +32,11 @@ management*. QuietGovernor gives you three things Windows does not:
    compared. If a value did not stick, or Windows reported something different,
    the change is rolled back and you are told exactly what happened.
 
+It can also, if you ask it to, re-apply your profile at sign-in — because Windows
+and vendor utilities tend to reset these values. That is a deliberate,
+separately-consented step: a scheduled task that runs with administrator rights,
+inspected and removable, with no service and no background process.
+
 ## Try it without changing anything
 
 QuietGovernor can run against an in-memory PC. This exercises the real code —
@@ -42,6 +47,7 @@ $ pip install quietgovernor        # or: pipx install quietgovernor
 $ quietgovernor --simulate status
 $ quietgovernor --simulate plan --profile quiet
 $ quietgovernor --simulate apply --profile quiet --yes
+$ quietgovernor --simulate autostart install --profile quiet --yes
 $ quietgovernor --simulate restore --yes
 ```
 
@@ -114,6 +120,10 @@ it keeps clocks high, which is louder — the opposite of what this tool is for.
 | `restore --preview` | Show what restore would change | No |
 | `profile set NAME --max-state 70` | Save your own profile | No |
 | `profile show NAME` / `profile delete NAME` | Inspect or remove a saved profile | No |
+| `autostart install --profile NAME` | Register an optional sign-in task that re-applies a profile | Not power settings; adds a task |
+| `autostart remove` | Delete that sign-in task | Removes a task only |
+| `autostart run` | Apply a profile without asking (this is what the task runs) | Yes |
+| `autostart install --preview` / `remove --preview` | Show what would change | No |
 
 Global options: `--simulate`, `--state-dir DIR`, `--json`, `--no-color`,
 `--version`. They work before or after the command name. `--yes` skips the
@@ -122,6 +132,37 @@ written unless `--yes` is passed.
 
 `--json` makes `status`, `plan`, `apply`, and `restore` machine-readable and
 requires `--yes` for the writing commands.
+
+## Optional: re-apply at sign-in
+
+Windows and vendor utilities often reset these values after a reboot, so a quiet
+laptop becomes noisy again. QuietGovernor can fix that automatically:
+
+```console
+quietgovernor autostart install --profile quiet     # shows the plan, asks first
+quietgovernor status                                # shows whether it exists
+quietgovernor autostart remove                      # delete it again
+```
+
+What it registers: one Task Scheduler entry, `\QuietGovernor\ApplyAtLogon`, that
+runs about 20 seconds after you sign in, as you, with highest available
+privileges, and executes `quietgovernor autostart run --profile quiet`. No
+service, no tray icon, no background process, no network access. `status` shows
+the task, the profile it applies, its privileges, and the outcome of the last run
+(including failures, which is the only way to notice them under `pythonw.exe`).
+
+**Why installing it is a separate, deliberate step.** A task that runs with
+administrator rights at every sign-in runs whatever program it points at. If that
+program — the Python interpreter or the QuietGovernor package — lives in a folder
+your normal account can write to, then anything that can write there gets
+administrator code execution at your next sign-in. So QuietGovernor refuses to
+install auto-start unless both live in an administrator-only folder (such as
+`C:\Program Files`). A default *per-user* Python install does not qualify; the
+error message tells you to install Python "for all users" instead.
+`--allow-untrusted-paths` overrides the check, and then says so every time.
+
+Removing the task never changes your processor settings, and `restore` never
+touches the task. The two are independent, so you can undo one without the other.
 
 ## How it works
 
@@ -173,13 +214,11 @@ owner-read/write only.
   vendor drivers. It reduces heat instead, and the fan follows.
 - **No undervolting or overclocking.** No invalid or unsupported firmware
   settings are changed.
-- **No background service or login auto-start.** Applying settings requires
-  administrator rights, and a silent elevated helper is exactly the kind of
-  component this tool refuses to install. The intended opt-in approach (a
-  scheduled task you can inspect and remove) is designed but not built yet; see
-  [docs/DECISIONS.md](docs/DECISIONS.md).
+- **No background service or resident tray helper.** The only persistent thing
+  QuietGovernor can install is the opt-in sign-in task described above, which
+  runs once at sign-in and exits. Nothing stays running.
 - **No telemetry, no network access at all.** Nothing leaves the machine.
-- **No GUI yet.** The command line is the interface in 0.1.0.
+- **No GUI yet.** The command line is the interface in 0.2.0.
 
 ## Troubleshooting
 
@@ -194,8 +233,16 @@ setting is skipped and everything else still applies.
 
 **The profile seems to be ignored after a reboot.**
 Vendor power software usually rewrote the values. Either turn off the vendor's
-automatic power mode switching, or re-run `quietgovernor apply`. `status` will
-show the drift rather than pretending nothing happened.
+automatic power mode switching, re-run `quietgovernor apply`, or install the
+optional sign-in task (`quietgovernor autostart install --profile quiet`) so the
+profile is re-applied automatically. Either way `status` shows the drift rather
+than pretending nothing happened.
+
+**`autostart install` refuses, saying the interpreter or package is user-writable.**
+That is the privilege-escalation guard. Python installed "for all users" lives in
+`C:\Program Files` and qualifies; a per-user install does not. Reinstall Python
+for all users, install QuietGovernor into that interpreter, and try again — or
+accept the risk explicitly with `--allow-untrusted-paths`.
 
 **The PC feels sluggish.**
 Raise the cap or use `balanced`: `quietgovernor apply --profile balanced`. Caps
@@ -205,6 +252,7 @@ stutter at those levels instead of merely running slowly.
 ## Uninstall / full removal
 
 ```console
+quietgovernor autostart remove    # delete the sign-in task, if you installed one
 quietgovernor restore --preview   # check what would be put back
 quietgovernor restore             # put your original settings back
 pipx uninstall quietgovernor      # or: pip uninstall quietgovernor
@@ -216,7 +264,7 @@ any Windows setting — only `restore` does.
 ## Verification status
 
 QuietGovernor labels every claim. The platform-independent logic is verified by an
-automated test suite of 135 tests that runs anywhere. The Windows API path has been
+automated test suite of 200 tests that runs anywhere. The Windows API path has been
 exercised once, on a GitHub-hosted Windows virtual machine (see below), but never
 on physical hardware and never with the resulting values inspected by a human.
 
@@ -226,11 +274,13 @@ on physical hardware and never with the resulting values inspected by a human.
 | Planning, warnings, notes, drift maths | **Verified** | `tests/test_planning.py`, `tests/test_controller.py` |
 | Atomic storage, schema guards, baseline-once | **Verified** | `tests/test_store.py` |
 | Apply/restore/rollback/refusal ordering | **Verified** | `tests/test_controller.py` (38 tests, simulated backend) |
-| CLI behaviour, exit codes, `--json`, consent | **Verified** | `tests/test_cli.py` (25 tests) |
+| Auto-start preflight, path trust, install/remove/verify | **Verified** | `tests/test_autostart.py` (45 tests, simulated scheduler) |
+| CLI behaviour, exit codes, `--json`, consent | **Verified** | `tests/test_cli.py` (41 tests) |
 | GUID packing for `powrprof.dll` | **Verified** (byte layout vs `uuid`) | `tests/test_windows.py` |
 | Reading real settings on Windows | **Partially verified** | Windows-only tests in `tests/test_windows.py` and a real `status` call pass on a GitHub-hosted Windows VM (CI run 40810831546) |
 | Writing real settings on Windows | **Partially verified** | CI `apply` on that VM exits 0, which requires every write to be read back and match, then `restore` returns the values; the values themselves were not inspected |
 | Elevation detection (`IsUserAnAdmin`) | **Partially verified** | Exercised by the CI run; only the elevated case is covered |
+| `schtasks.exe` task create/query/delete, and the task XML being accepted | **Unverified** | Nothing has run it on Windows; content and well-formedness only |
 | Physical Windows 10/11 desktop, laptop fan behaviour, vendor software conflicts | **Unverified** | No hardware run; the checklist is in `docs/SPEC.md` §9 |
 
 The test suite is the honest part: "Verified" above means a check ran in this
@@ -239,14 +289,15 @@ repository and passed, and nothing else.
 ## Development
 
 ```console
-python -m unittest discover -s . -p "test_*.py"    # 135 tests, no dependencies
+python -m unittest discover -s . -p "test_*.py"    # 200 tests, no dependencies
 python -m compileall -q src tests
 python -m quietgovernor --simulate status          # run from a checkout: PYTHONPATH=src
 ```
 
 Layout: `policy` (what is allowed) → `planning` (what would happen) →
 `store` (durable state) → `controller` (apply/restore guarantees) →
-`windows` (ctypes bindings) / `backend` (protocol + simulator) → `cli`.
+`autostart` (sign-in task rules and behaviour) →
+`windows` (ctypes bindings and `schtasks`) / `backend` (protocol + simulator) → `cli`.
 Design notes and rejected alternatives are in
 [docs/DECISIONS.md](docs/DECISIONS.md); the behaviour specification is
 [docs/SPEC.md](docs/SPEC.md).

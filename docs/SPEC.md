@@ -1,8 +1,8 @@
-# QuietGovernor — behaviour specification (0.1.0)
+# QuietGovernor — behaviour specification (0.2.0)
 
 This document is the first-project milestone the README promised: intended
 behaviour, supported Windows versions, user controls, and a small implementation
-that can be checked. It describes what version 0.1.0 **does**, not what a future
+that can be checked. It describes what version 0.2.0 **does**, not what a future
 version might do. Anything not written here is out of scope.
 
 Verification labels used throughout: **Verified** (a check in this repository ran
@@ -21,11 +21,15 @@ find the setting, cannot tell what it costs them, or cannot get their original
 values back afterwards.
 
 QuietGovernor's scope: **change three processor power settings, explain them,
-verify them, and be able to undo them exactly.** Nothing else.
+verify them, and be able to undo them exactly.** Optionally, re-apply one profile
+at sign-in, because Windows and vendor utilities reset these values.
+
+Fan curves, undervolting, overclocking, per-application profiles, and always-on
+background components stay out of scope (see §5).
 
 ## 2. Supported environment
 
-| Item | Supported in 0.1.0 |
+| Item | Supported in 0.2.0 |
 | --- | --- |
 | Windows 10 | Yes, 1809 or later (target) |
 | Windows 11 | Yes (target) |
@@ -117,16 +121,43 @@ These are the promises the implementation must keep. Each has tests.
     minimum must not exceed maximum for the same power source. Messages state the
     accepted range and what to do.
 
-### 3.7 Data
+### 3.7 Sign-in auto-start (optional, off by default)
 
-28. State lives in `%LOCALAPPDATA%\QuietGovernor` (overridable). Three files:
-    `baseline.json`, `state.json`, `profiles.json`.
-29. Each file is JSON with an envelope: `kind`, `schema_version` (currently 1),
+29. Auto-start is never enabled implicitly. It exists only after an explicit
+    `autostart install`, and `status` states plainly whether it is present.
+30. Installing requires: an existing profile, an elevated terminal (Windows will
+    not otherwise accept a task that runs with highest privileges), and an
+    interpreter plus package folder inside a location only administrators can
+    write to. Any failure stops the install with the reason and a fix path, and
+    nothing is created.
+31. If the administrator-only folders cannot be determined, the install fails
+    closed rather than assuming safety. `--allow-untrusted-paths` overrides the
+    folder check and the override is reported in the plan, the install result,
+    and `status`.
+32. The created task runs at sign-in for the current user, with highest
+    available privileges, ignoring battery/network/idle conditions, with a
+    two-minute limit, and no console window (`pythonw.exe` where available).
+33. The task is verified after creation by reading it back: if Task Scheduler
+    reports no task, or a different command, the install fails and says so.
+34. `autostart run` applies one profile with no confirmation (consent was given at
+    install time) and records the outcome — success or the error text — where
+    `status` reports it.
+35. `autostart remove` deletes the task and verifies it is gone. Removing a task
+    never changes power settings; `restore` never touches the task.
+36. `status` reports inconsistencies rather than hiding them: a task with no
+    record, a record with no task, a task that points at another program, or a
+    task whose command differs from the recorded one.
+
+### 3.8 Data
+
+37. State lives in `%LOCALAPPDATA%\QuietGovernor` (overridable). Four files:
+    `baseline.json`, `state.json`, `profiles.json`, `autostart.json`.
+38. Each file is JSON with an envelope: `kind`, `schema_version` (currently 1),
     `data`. A wrong kind, a future version, or a truncated file is reported with
     the file path and a fix path; nothing is guessed.
-30. Writes are atomic: temporary file in the same directory, flush, rename, then
+39. Writes are atomic: temporary file in the same directory, flush, rename, then
     read back and compare.
-31. On POSIX systems files are created owner-read/write only; on Windows they
+40. On POSIX systems files are created owner-read/write only; on Windows they
     inherit the per-user permissions of `%LOCALAPPDATA%`.
 
 ## 4. User controls
@@ -143,18 +174,21 @@ These are the promises the implementation must keep. Each has tests.
 | Colour | automatic, `--no-color`, `NO_COLOR` | auto | Never used for meaning alone |
 | State location | `--state-dir`, `QUIETGOVERNOR_STATE_DIR` | `%LOCALAPPDATA%` | |
 | Simulation | `--simulate` | off | Separate state folder |
+| Sign-in auto-start | `autostart install/remove` | off | Requires elevation and admin-only code paths |
+| Privilege guard override | `--allow-untrusted-paths` | off | Reported everywhere it is used |
+| Task payload | `autostart run --profile` | — | Runs unattended, records its outcome |
 
 Accessibility: plain line-based output, no meaning conveyed by colour alone
 (every state also has words), no animation, works in a screen reader because
 output is one sentence per line, exit codes documented (0 success or deliberate
 refusal, 1 error, 2 usage, 130 interrupted).
 
-## 5. Non-goals for 0.1.0
+## 5. Non-goals
 
 Fan curves and fan speed control; undervolting; overclocking; per-application
-power profiles; a GUI; a system service; auto-apply at login; changing the active
-power plan; changing sleep, display, or battery settings; telemetry; any network
-access.
+power profiles; a GUI; a system service; any always-running component (the sign-in
+task runs once and exits); changing the active power plan; changing sleep,
+display, or battery settings; telemetry; any network access.
 
 ## 6. Implementation shape
 
@@ -165,7 +199,8 @@ access.
 | `store` | Versioned documents, atomic writes, validation | No |
 | `backend` | `PowerBackend` protocol, simulated PC, drift maths | No |
 | `controller` | Apply/restore ordering, rollback, verification, state | No |
-| `windows` | `powrprof.dll` calls, elevation check, GUID packing | Yes |
+| `autostart` | Task definition, path trust rules, install/remove/run, last-run record | No |
+| `windows` | `powrprof.dll` calls, elevation check, GUID packing, `schtasks.exe` | Yes |
 | `cli` | Argument parsing, output, consent | No |
 
 The split exists so that everything except the final API call is testable on any
@@ -190,6 +225,8 @@ otherwise.
 - [x] A working implementation of the above, runnable on any OS in simulation.
 - [x] Documented, versioned, atomic local storage.
 - [x] Reversible by design, with the restore path tested including failure paths.
+- [x] Optional sign-in auto-start, off by default, with a privilege-escalation
+      guard, read-back verification, and an inspectable last run.
 - [ ] Real Windows hardware run recorded (see §9). A virtual-machine run now
       exists in CI and is recorded as Partially verified; physical hardware, fan
       behaviour, and vendor-software conflicts are still open. This remains the
@@ -213,6 +250,10 @@ otherwise.
 | `powrprof.dll` writes on real Windows | Partially verified | `apply --yes` exits 0 on that VM, which requires every write to be read back and match; `restore --yes` then succeeds. Values were not inspected by a human, and no physical hardware was used. |
 | Elevation detection | Partially verified | Exercised by the CI run (elevated case only) |
 | Behaviour on specific laptop models / vendor software conflicts | Unverified | No hardware matrix |
+| Auto-start preflight, path-trust rules, task XML, install/remove/verify | Verified | `tests/test_autostart.py` (45 tests, simulated scheduler) |
+| Auto-start consent, `--json`, and refusal without a terminal | Verified | `tests/test_cli.py` |
+| `schtasks.exe` on real Windows (create/query/delete a task) | Unverified | Needs a Windows run; the CI job attempts it and collects output |
+| Task XML accepted by Windows Task Scheduler | Unverified | Well-formedness and content are tested; schema acceptance needs Windows |
 | Python 3.9, 3.11, and 3.13 compatibility | Verified | CI matrix runs the full suite on all three (CI run 40810831546) |
 | Packaging: `pip install .` and the console script | Verified | CI installs the package and runs `quietgovernor --version` before the smoke test; `scripts/smoke_simulate.py` then drives apply → status → restore |
 

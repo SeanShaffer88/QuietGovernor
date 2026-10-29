@@ -24,9 +24,14 @@ docs/SPEC.md until a real run is recorded.
 from __future__ import annotations
 
 import ctypes
+import os
+import subprocess
 import sys
+import tempfile
 import uuid
+import xml.etree.ElementTree as ElementTree
 from ctypes import wintypes
+from pathlib import Path
 
 from .errors import BackendError, NotElevatedError
 from .planning import Reading
@@ -304,3 +309,179 @@ class WindowsBackend:
             f"{'plugged-in' if source == AC else 'battery'} power "
             f"({_error_text(code)})."
         )
+
+
+# --- Task Scheduler --------------------------------------------------------
+#
+# Auto-start lives here rather than in autostart.py so that every operating
+# system call stays in this module. Task Scheduler is driven through
+# schtasks.exe with XML in and XML out: the /XML switches are the only way to
+# express "run with highest privileges at logon", and XML answers are identical
+# in every display language, unlike schtasks' text output.
+
+SCHTASKS = "schtasks.exe"
+_CREATE_FAILED_HELP = (
+    "Windows refused to create the scheduled task. Common causes: this terminal "
+    "is not elevated; the Task Scheduler service is stopped; or policy forbids "
+    "creating tasks. Check with 'services.msc' that Task Scheduler is running, "
+    "then try again from an elevated terminal."
+)
+
+
+def _run_schtasks(arguments: list[str]) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            [SCHTASKS, *arguments],
+            capture_output=True,
+            text=True,
+            check=False,
+            # schtasks writes UTF-16-ish text; decode leniently rather than fail.
+            errors="replace",
+        )
+    except FileNotFoundError as exc:  # pragma: no cover - Windows always has it
+        raise BackendError(
+            "Could not find schtasks.exe, which Windows uses to manage scheduled "
+            "tasks. Auto-start cannot be installed on this system. Your power "
+            "settings were not changed."
+        ) from exc
+    except OSError as exc:  # pragma: no cover - unusual permission problems
+        raise BackendError(
+            f"Could not run schtasks.exe ({exc}). Auto-start was not changed."
+        ) from exc
+
+
+def _dedent_report(text: str) -> str:
+    return " ".join(text.split())[:400]
+
+
+class WindowsTaskScheduler:
+    """Task Scheduler through ``schtasks.exe``, one named task at a time."""
+
+    def __init__(self) -> None:
+        if not is_windows():
+            import platform
+
+            raise BackendError(NOT_WINDOWS_HELP.format(platform=platform.system()))
+
+    def create(self, spec: "object") -> None:
+        from .autostart import task_xml
+
+        user = current_user()
+        if not user:
+            raise BackendError(
+                "Could not work out which Windows account to run the task as. "
+                "Auto-start was not created; your power settings were not changed. "
+                "Run 'quietgovernor status' to confirm the tool itself works, then "
+                "report this."
+            )
+        xml = task_xml(spec, user=user)  # type: ignore[arg-type]
+        handle, xml_path = tempfile.mkstemp(suffix=".xml", prefix="quietgovernor-task-")
+        try:
+            with os.fdopen(handle, "w", encoding="utf-16", newline="\n") as stream:
+                stream.write(xml)
+            result = _run_schtasks(
+                ["/create", "/tn", spec.task_path, "/xml", xml_path, "/f"]  # type: ignore[attr-defined]
+            )
+        finally:
+            try:
+                os.unlink(xml_path)
+            except OSError:
+                pass
+        if result.returncode != 0:
+            raise BackendError(f"{_CREATE_FAILED_HELP} ({_dedent_report(result.stderr or result.stdout)})")
+
+    def delete(self, task_path: str) -> None:
+        result = _run_schtasks(["/delete", "/tn", task_path, "/f"])
+        if result.returncode != 0:
+            raise BackendError(
+                "Windows refused to delete the scheduled task. Remove it in Task "
+                "Scheduler (Task Scheduler Library > QuietGovernor) or run "
+                f"'schtasks /delete /tn \"{task_path}\" /f' from an elevated "
+                f"terminal. ({_dedent_report(result.stderr or result.stdout)})"
+            )
+
+    def describe(self, task_path: str) -> dict[str, str] | None:
+        """Read the task back as XML; None when it does not exist."""
+        result = _run_schtasks(["/query", "/tn", task_path, "/xml"])
+        if result.returncode != 0:
+            return None
+        return _parse_task_xml(result.stdout or "")
+
+
+def _parse_task_xml(text: str) -> dict[str, str] | None:
+    """Pull the interesting fields out of a Task Scheduler XML definition.
+
+    Uses ElementTree with namespace-agnostic tag matching so a schema change or
+    a different prefix cannot break it.
+    """
+    text = text.strip()
+    if not text.startswith("<"):
+        start = text.find("<")
+        if start < 0:
+            return None
+        text = text[start:]
+    try:
+        root = ElementTree.fromstring(text)
+    except ElementTree.ParseError:
+        return None
+    wanted = {"Command": "command", "Arguments": "arguments", "RunLevel": "run_level"}
+    found: dict[str, str] = {}
+
+    def local(tag: str) -> str:
+        return tag.rsplit("}", 1)[-1]
+
+    for element in root.iter():
+        key = wanted.get(local(element.tag))
+        if key is None or key in found:
+            continue
+        value = (element.text or "").strip()
+        if value:
+            found[key] = value
+    return found or None
+
+
+def current_user() -> str:
+    """The ``DOMAIN\\user`` form Task Scheduler expects for a logon trigger."""
+    domain = os.environ.get("USERDOMAIN") or ""
+    user = os.environ.get("USERNAME") or ""
+    if not user:
+        return ""
+    return f"{domain}\\{user}" if domain else user
+
+
+def protected_roots() -> tuple[str, ...]:
+    """Administrator-only folders on this machine."""
+    from .autostart import protected_roots as _roots
+
+    return _roots(os.environ)
+
+
+def python_for_tasks() -> str:
+    """The interpreter to record in a scheduled task.
+
+    Prefers ``pythonw.exe`` beside the current interpreter so no console window
+    flashes at sign-in; falls back to the current interpreter.
+    """
+    executable = sys.executable or ""
+    if not executable:
+        return ""
+    candidate = Path(executable).with_name("pythonw.exe")
+    try:
+        if candidate.exists():
+            return str(candidate)
+    except OSError:  # pragma: no cover - unusual filesystem
+        pass
+    return executable
+
+
+def package_root() -> str | None:
+    """The folder holding the ``quietgovernor`` package, or None if unimportable."""
+    try:
+        import quietgovernor
+
+        location = getattr(quietgovernor, "__file__", None)
+    except ImportError:  # pragma: no cover - cannot happen from here
+        return None
+    if not location:
+        return None
+    return str(Path(location).resolve().parent)

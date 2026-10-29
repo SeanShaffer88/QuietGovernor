@@ -82,6 +82,20 @@ jobs:
           quietgovernor status | Tee-Object -FilePath after-restore.txt
           quietgovernor --json status | Out-File -FilePath after-restore.json -Encoding utf8
 
+      - name: Auto-start task (install, inspect, remove)
+        shell: pwsh
+        run: |
+          $env:QUIETGOVERNOR_STATE_DIR = "$env:RUNNER_TEMP\qg-state"
+          # This is the first real exercise of schtasks.exe and the task XML.
+          # It may legitimately fail on a hosted runner (per-user Python lives in
+          # a user-writable folder), which is itself the evidence: the guard works.
+          quietgovernor autostart install --profile quiet --preview | Tee-Object -FilePath autostart-preview.txt
+          quietgovernor autostart install --profile quiet --yes 2>&1 | Tee-Object -FilePath autostart-install.txt
+          quietgovernor --json status | Out-File -FilePath autostart-status.json -Encoding utf8
+          quietgovernor autostart remove --yes 2>&1 | Tee-Object -FilePath autostart-remove.txt
+          quietgovernor --json status | Out-File -FilePath autostart-after-remove.json -Encoding utf8
+          Get-Content autostart-preview.txt, autostart-install.txt, autostart-remove.txt
+
       - name: Keep the evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -96,4 +110,9 @@ jobs:
             restore.txt
             after-restore.txt
             after-restore.json
+            autostart-preview.txt
+            autostart-install.txt
+            autostart-remove.txt
+            autostart-status.json
+            autostart-after-remove.json
           if-no-files-found: warn
