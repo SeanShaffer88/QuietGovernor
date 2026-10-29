@@ -11,8 +11,8 @@ command.
 
 **Status: early implementation (0.1.0).** Working code, tested logic, no release
 build yet. Read [Verification status](#verification-status) before you rely on it
-— in particular, the Windows API calls have not yet been run on real hardware by
-this project.
+— in particular, the Windows API path has run only on a virtual CI machine, never
+on physical hardware.
 
 ---
 
@@ -215,9 +215,10 @@ any Windows setting — only `restore` does.
 
 ## Verification status
 
-QuietGovernor labels every claim. Nothing here was verified on Windows hardware
-by this project yet; the platform-independent logic is verified by an automated
-test suite of 135 tests that runs anywhere.
+QuietGovernor labels every claim. The platform-independent logic is verified by an
+automated test suite of 135 tests that runs anywhere. The Windows API path has been
+exercised once, on a GitHub-hosted Windows virtual machine (see below), but never
+on physical hardware and never with the resulting values inspected by a human.
 
 | Area | Status | Evidence |
 | --- | --- | --- |
@@ -227,9 +228,10 @@ test suite of 135 tests that runs anywhere.
 | Apply/restore/rollback/refusal ordering | **Verified** | `tests/test_controller.py` (38 tests, simulated backend) |
 | CLI behaviour, exit codes, `--json`, consent | **Verified** | `tests/test_cli.py` (25 tests) |
 | GUID packing for `powrprof.dll` | **Verified** (byte layout vs `uuid`) | `tests/test_windows.py` |
-| Reading real settings on Windows | **Unverified** | Read-only checks in `tests/test_windows.py` run only on Windows |
-| Writing real settings on Windows | **Unverified** | Requires elevated hardware test; see `docs/SPEC.md` |
-| Behaving as expected on specific laptop models | **Unverified** | No hardware matrix has been run |
+| Reading real settings on Windows | **Partially verified** | Windows-only tests in `tests/test_windows.py` and a real `status` call pass on a GitHub-hosted Windows VM (CI run 40810831546) |
+| Writing real settings on Windows | **Partially verified** | CI `apply` on that VM exits 0, which requires every write to be read back and match, then `restore` returns the values; the values themselves were not inspected |
+| Elevation detection (`IsUserAnAdmin`) | **Partially verified** | Exercised by the CI run; only the elevated case is covered |
+| Physical Windows 10/11 desktop, laptop fan behaviour, vendor software conflicts | **Unverified** | No hardware run; the checklist is in `docs/SPEC.md` §9 |
 
 The test suite is the honest part: "Verified" above means a check ran in this
 repository and passed, and nothing else.

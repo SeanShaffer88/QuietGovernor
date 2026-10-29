@@ -36,8 +36,11 @@ verify them, and be able to undo them exactly.** Nothing else.
 | Virtual machines | Reads work; boost mode is often absent; writes may be refused by the hypervisor |
 | macOS / Linux | Only `--simulate`. The real backend refuses with an explanation. |
 
-**Verification:** the Windows targets are **Unverified** — no Windows hardware
-run has been recorded in this repository. See §9.
+**Verification:** the Windows API path is **Partially verified** — it ran once on a
+GitHub-hosted Windows virtual machine (CI run 40810831546) with apply, read-back
+and restore all succeeding. No physical Windows 10/11 hardware run has been
+recorded, so fan behaviour and vendor-software conflicts remain **Unverified**.
+See §9.
 
 ## 3. Behaviour contract
 
@@ -187,8 +190,10 @@ otherwise.
 - [x] A working implementation of the above, runnable on any OS in simulation.
 - [x] Documented, versioned, atomic local storage.
 - [x] Reversible by design, with the restore path tested including failure paths.
-- [ ] Real Windows hardware run recorded (see §9) — this is the remaining
-      milestone gate, and it cannot be satisfied off Windows.
+- [ ] Real Windows hardware run recorded (see §9). A virtual-machine run now
+      exists in CI and is recorded as Partially verified; physical hardware, fan
+      behaviour, and vendor-software conflicts are still open. This remains the
+      milestone gate.
 
 ## 9. Verification ledger
 
@@ -204,13 +209,18 @@ otherwise.
 | Atomic writes and schema guards | Verified | `tests/test_store.py` |
 | CLI consent, exit codes, `--json` purity | Verified | `tests/test_cli.py` |
 | GUID packing correct for `powrprof.dll` | Verified | `tests/test_windows.py` vs `uuid` |
-| `powrprof.dll` reads on real Windows | Unverified | Windows-only tests exist but have not run here |
-| `powrprof.dll` writes on real Windows | Unverified | Needs an elevated hardware run |
-| Elevation detection | Unverified | `IsUserAnAdmin` has not been called on Windows here |
+| `powrprof.dll` reads on real Windows | Partially verified | Windows-only tests and a real `status` call pass on a GitHub-hosted Windows VM (CI run 40810831546) |
+| `powrprof.dll` writes on real Windows | Partially verified | `apply --yes` exits 0 on that VM, which requires every write to be read back and match; `restore --yes` then succeeds. Values were not inspected by a human, and no physical hardware was used. |
+| Elevation detection | Partially verified | Exercised by the CI run (elevated case only) |
 | Behaviour on specific laptop models / vendor software conflicts | Unverified | No hardware matrix |
-| Python 3.9 and 3.13 compatibility | Partially verified | Tested on 3.11 in this environment; CI matrix configured, not yet run |
+| Python 3.9, 3.11, and 3.13 compatibility | Verified | CI matrix runs the full suite on all three (CI run 40810831546) |
+| Packaging: `pip install .` and the console script | Verified | CI installs the package and runs `quietgovernor --version` before the smoke test; `scripts/smoke_simulate.py` then drives apply → status → restore |
 
 ### What a hardware run must do
+
+The CI run above covers step 2 and 3 mechanically on a virtual machine, but
+nobody has looked at the resulting values, and the machine has no fan. The
+following is still required on physical hardware:
 
 1. `quietgovernor status` on stock Windows 10 and Windows 11, elevated and not.
 2. `quietgovernor apply --profile quiet --yes`, then check Windows' own Power

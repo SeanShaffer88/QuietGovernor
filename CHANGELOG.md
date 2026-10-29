@@ -43,8 +43,10 @@ First implementation. The repository previously contained documentation only.
 
 ### Known limitations
 
-- The Windows API paths have **not** been verified on Windows hardware by the
-  project; see the verification table in `docs/SPEC.md`.
+- The Windows API paths have run only on a GitHub-hosted Windows virtual machine
+  (CI), where read, apply, verify, and restore all succeeded; they have not been
+  verified on physical Windows hardware, and the resulting values have not been
+  inspected by a human. See the verification table in `docs/SPEC.md`.
 - No GUI, no system service, and no apply-at-login (designed, not built).
 - Fan speed and fan curves are out of scope; only processor power settings are
   managed.
