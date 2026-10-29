@@ -508,3 +508,17 @@ class TestPlanSwitchReporting(ControllerTestCase):
         assert status.state is not None
         self.assertEqual(status.state.scheme_name, "High performance")
         self.assertTrue(status.state.is_governing)
+
+
+class TestApplyNotesMatchRestoreBehaviour(ControllerTestCase):
+    """A note that describes what restore will do must not describe the old rule."""
+
+    def test_apply_note_says_restore_will_refuse(self) -> None:
+        self.controller.apply("quiet", confirm=lambda plan: True)
+        self.backend.scheme_name = "High performance"
+        self.backend.scheme_guid = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
+        result = self.controller.apply("quiet", dry_run=True)
+        joined = " ".join(result.plan.notes)
+        self.assertIn("will refuse", joined)
+        self.assertIn("--into-active-plan", joined)
+        self.assertNotIn("writes it into the active plan", joined)

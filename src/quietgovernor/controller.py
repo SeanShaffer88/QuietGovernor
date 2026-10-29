@@ -363,7 +363,9 @@ class Controller:
                 f"Your original settings were recorded in power plan "
                 f"'{existing_baseline.scheme_name}', but '{scheme_name}' is "
                 f"active now. The restore point is kept as it was; 'restore' "
-                f"writes it into the active plan."
+                f"will refuse while that is true, so switch to "
+                f"'{existing_baseline.scheme_name}' to undo that change, or pass "
+                f"--into-active-plan."
             )
         if notes != list(plan.notes):
             plan = _with_notes(plan, notes)
