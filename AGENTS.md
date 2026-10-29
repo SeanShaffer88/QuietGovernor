@@ -22,3 +22,60 @@ Standing defaults (a project brief may override a specific default):
 - Status and task reports include a Progress % and an ETA whenever they can be estimated responsibly.
 - Public documentation avoids competitor comparisons by default (internal research may name competitors; license attributions for bundled components are kept).
 - License: MIT for SEAN-owned projects; forks retain their upstream license.
+
+---
+
+## Implementation notes (0.1.0)
+
+This section records what exists, so future work builds on it instead of
+guessing. Behaviour is specified in `docs/SPEC.md`; the reasoning behind each
+design choice is in `docs/DECISIONS.md`.
+
+### Status
+
+- Working Python 3.9+ CLI, standard library only, at `src/quietgovernor/`.
+- 135 tests, run with `python -m unittest discover -s . -p "test_*.py"`.
+- The Windows path (`windows.py`) is implemented but **unverified on hardware**.
+  Do not describe it as working until `docs/SPEC.md` §9 records a run.
+
+### Module boundaries (keep them)
+
+`policy` (what is allowed) → `planning` (what would happen) → `store` (durable
+state) → `controller` (apply/restore guarantees) → `windows` / `backend`
+(the API boundary) → `cli`. Nothing above `windows.py` may import ctypes, and
+nothing below `controller.py` may decide when to ask the user anything.
+
+### Invariants that must not regress
+
+Each has a test in `tests/test_controller.py`; adding a behaviour that weakens
+one of these is a regression, not a trade-off.
+
+1. A baseline is written only after confirmation and before the first write.
+2. A refused or refused-by-absence-of-terminal apply writes nothing at all.
+3. The first baseline is never overwritten by later applies.
+4. Every write is read back; a mismatch is a failure, not a success.
+5. A failed write rolls back everything already written.
+6. If rollback also fails, the error names the remaining values and the restore
+   command.
+7. An apply that found nothing to change records no state and claims nothing.
+8. `restore` keeps `baseline.json`.
+9. A plan or setting change during confirmation aborts with nothing written.
+10. Simulation state never mixes with real state.
+
+### Verification discipline
+
+- "Verified" means a test in this repository ran and passed. Windows API calls
+  stay Unverified until a real run is recorded in `docs/SPEC.md` §9.
+- Update the README verification table and `docs/SPEC.md` in the same change that
+  alters a claim. Do not let the tables drift from the tests.
+- Never add a feature that changes system settings without preview, confirmation,
+  and a recorded restore path.
+
+### Testing notes
+
+- No third-party dependencies; use `unittest` and the helpers in `tests/__init__.py`.
+- `SimulatedBackend` supports missing settings (`unavailable=`), failing writes
+  (`fail_on=`), and a persisted simulated machine (`state_path=`), which is enough
+  to test every failure path without Windows.
+- Set `QUIETGOVERNOR_STATE_DIR` to a temporary directory in tests; never write to
+  a real user profile.

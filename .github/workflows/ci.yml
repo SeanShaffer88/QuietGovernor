@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests (Python ${{ matrix.python }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.9", "3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Byte-compile every module
+        run: python -m compileall -q src tests
+      - name: Unit tests
+        run: python -m unittest discover -s . -p "test_*.py" -v
+      - name: CLI smoke test in simulation mode
+        env:
+          QUIETGOVERNOR_STATE_DIR: ${{ runner.temp }}/qg-state
+        run: |
+          python -m quietgovernor --simulate --json status > /dev/null
+          python -m quietgovernor --simulate apply --profile quiet --yes
+          python -m quietgovernor --simulate --json status > status.json
+          python -c "import json,sys; d=json.load(open('status.json')); sys.exit(0 if d['governing'] and d['settings']['max_state']['ac'] == 60 else 1)"
+          python -m quietgovernor --simulate restore --yes
+          python -c "import json,sys; d=json.load(open('status.json')); sys.exit(0)"
+      - name: Package installs and the console script runs
+        run: |
+          python -m pip install --quiet --upgrade pip wheel setuptools
+          python -m pip install --quiet --no-deps .
+          quietgovernor --version
+
+  windows-evidence:
+    name: Windows hardware evidence (informational)
+    runs-on: windows-latest
+    # These steps exercise powrprof.dll on a real Windows kernel. They are the
+    # evidence docs/SPEC.md is waiting for, so their output is uploaded and kept,
+    # but a hosted-VM quirk must not block merges. Remove continue-on-error once
+    # the behaviour is confirmed on real hardware.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Unit tests (includes Windows-only checks)
+        run: python -m unittest discover -s . -p "test_*.py" -v
+      - name: Record active plan and settings
+        shell: pwsh
+        run: |
+          $env:QUIETGOVERNOR_STATE_DIR = "$env:RUNNER_TEMP\qg-state"
+          python -m quietgovernor status | Out-File -FilePath status.txt -Encoding utf8
+          python -m quietgovernor --json status | Out-File -FilePath status.json -Encoding utf8
+          Get-Content status.txt
+      - name: Apply, verify, and restore on real Windows
+        shell: pwsh
+        run: |
+          $env:QUIETGOVERNOR_STATE_DIR = "$env:RUNNER_TEMP\qg-state"
+          python -m quietgovernor apply --profile quiet --yes | Out-File apply.txt -Encoding utf8
+          python -m quietgovernor status | Out-File after-apply.txt -Encoding utf8
+          python -m quietgovernor restore --yes | Out-File restore.txt -Encoding utf8
+          python -m quietgovernor status | Out-File after-restore.txt -Encoding utf8
+          Get-Content apply.txt, after-apply.txt, restore.txt, after-restore.txt
+      - name: Keep the evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-evidence
+          path: |
+            status.txt
+            status.json
+            apply.txt
+            after-apply.txt
+            restore.txt
+            after-restore.txt

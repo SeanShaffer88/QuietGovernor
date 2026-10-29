@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quietgovernor"
+version = "0.1.0"
+description = "Keep a Windows PC quiet by capping processor performance states, reversibly."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Sean Shaffer", email = "SeanShaffer88@proton.me" }]
+keywords = ["windows", "power-management", "fan-noise", "thermal", "powrprof"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: Microsoft :: Windows :: Windows 10",
+  "Operating System :: Microsoft :: Windows :: Windows 11",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: System :: Systems Administration",
+  "Topic :: Utilities",
+]
+
+[project.scripts]
+quietgovernor = "quietgovernor.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/SeanShaffer88/QuietGovernor"
+Issues = "https://github.com/SeanShaffer88/QuietGovernor/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools]
+zip-safe = false
