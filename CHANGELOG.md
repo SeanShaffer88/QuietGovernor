@@ -4,7 +4,7 @@ All notable changes to QuietGovernor are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] — 2026-10-29
 
 ### Fixed
 
@@ -21,6 +21,10 @@ All notable changes to QuietGovernor are recorded here. The format follows
 - Re-applying after a plan switch, when the new plan already matched the profile,
   wrote nothing and left the record pointing at the old plan — so the notice could
   never clear. An empty apply now re-points the record at the active plan.
+- The README told people to `pip install quietgovernor`. The package is not on
+  PyPI, so that failed; installation now points at the wheel attached to a release
+  (or a checkout), and the wheel filename is the one this release actually
+  produces.
 
 ### Changed
 
@@ -53,7 +57,7 @@ All notable changes to QuietGovernor are recorded here. The format follows
   package version, runs the suite, builds a wheel and sdist, installs the wheel in
   a clean environment and drives the harness against it, then publishes a GitHub
   release with both files. Until now there was no distributable at all.
-- 27 new tests (227 total) for the harness, including the guarantee that restore
+- 27 new tests for the harness, including the guarantee that restore
   runs after a failed check and that a failed restore is reported with the way
   back.
 
@@ -158,6 +162,7 @@ First implementation. The repository previously contained documentation only.
   managed.
 - Windows 8.1 and older are unsupported and untested.
 
+[0.3.0]: https://github.com/SeanShaffer88/QuietGovernor/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/SeanShaffer88/QuietGovernor/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/SeanShaffer88/QuietGovernor/releases/tag/v0.1.0
-[Unreleased]: https://github.com/SeanShaffer88/QuietGovernor/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/SeanShaffer88/QuietGovernor/compare/v0.3.0...HEAD

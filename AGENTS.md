@@ -25,7 +25,7 @@ Standing defaults (a project brief may override a specific default):
 
 ---
 
-## Implementation notes (0.2.0)
+## Implementation notes (0.3.0)
 
 This section records what exists, so future work builds on it instead of
 guessing. Behaviour is specified in `docs/SPEC.md`; the reasoning behind each
@@ -34,7 +34,7 @@ design choice is in `docs/DECISIONS.md`.
 ### Status
 
 - Working Python 3.9+ CLI, standard library only, at `src/quietgovernor/`.
-- 200 tests, run with `python -m unittest discover -s . -p "test_*.py"`.
+- 246 tests, run with `python -m unittest discover -s . -p "test_*.py"`.
 - The Windows path (`windows.py`) is implemented but **unverified on hardware**.
   Do not describe it as working until `docs/SPEC.md` §9 records a run.
 
