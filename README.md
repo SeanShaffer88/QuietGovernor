@@ -115,6 +115,12 @@ quietgovernor plan --profile meetings
 quietgovernor apply --profile meetings
 ```
 
+Names are simple on purpose — letters, digits, dots, dashes, underscores, up to 40
+characters — because they appear on the command line and in the state file. The
+built-in names (`quiet`, `balanced`, `custom`, `restore`) are reserved: saving over
+one would hide it everywhere and could never be undone, so `profile set quiet ...`
+is refused with a suggested name like `quiet-mine`.
+
 `--scope ac` limits a profile to mains power, `--scope dc` to battery, and the
 default `both` covers each. `--min-state` is capped at 50% on purpose: raising
 it keeps clocks high, which is louder — the opposite of what this tool is for.
@@ -243,6 +249,12 @@ changed by the failed attempt.
 Normal on many desktops, virtual machines, and CPUs without turbo. That one
 setting is skipped and everything else still applies.
 
+**`status` says the active power plan is not the one the profile was applied to.**
+You switched Windows power plans. QuietGovernor writes into the plan that is
+active and does not change your plan choice, so the values it set live in the
+other plan. Apply again to govern the plan you are using now; `status` will stop
+saying it as soon as that plan matches.
+
 **The profile seems to be ignored after a reboot.**
 Vendor power software usually rewrote the values. Either turn off the vendor's
 automatic power mode switching, re-run `quietgovernor apply`, or install the
@@ -276,7 +288,7 @@ any Windows setting — only `restore` does.
 ## Verification status
 
 QuietGovernor labels every claim. The platform-independent logic is verified by an
-automated test suite of 227 tests that runs anywhere. The Windows API path has been
+automated test suite of 246 tests that runs anywhere. The Windows API path has been
 exercised once, on a GitHub-hosted Windows virtual machine (see below), but never
 on physical hardware and never with the resulting values inspected by a human.
 
@@ -308,7 +320,7 @@ an issue. It is read-only unless you pass `--apply`.
 ## Development
 
 ```console
-python -m unittest discover -s . -p "test_*.py"    # 227 tests, no dependencies
+python -m unittest discover -s . -p "test_*.py"    # 246 tests, no dependencies
 python -m compileall -q src tests
 python -m quietgovernor --simulate status          # run from a checkout: PYTHONPATH=src
 ```

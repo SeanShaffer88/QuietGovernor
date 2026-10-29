@@ -17,6 +17,7 @@ from quietgovernor.policy import (
     check_consistency,
     get_builtin,
     is_guid,
+    validate_profile_name,
     validate_scope,
     validate_value,
 )
@@ -99,6 +100,35 @@ class TestScope(unittest.TestCase):
         with self.assertRaises(PolicyError) as caught:
             validate_scope("mains")
         self.assertIn("scope must be one of", str(caught.exception))
+
+
+class TestProfileNames(unittest.TestCase):
+    def test_good_names_are_trimmed_and_kept(self) -> None:
+        for name in ("night", "meetings-2", "a.b_c", "Q3"):
+            with self.subTest(name=name):
+                self.assertEqual(validate_profile_name(name), name)
+        self.assertEqual(validate_profile_name("  quiet-ish  "), "quiet-ish")
+
+    def test_spaces_are_refused_with_a_suggestion(self) -> None:
+        with self.assertRaises(PolicyError) as caught:
+            validate_profile_name("quiet mode")
+        message = str(caught.exception)
+        self.assertIn("cannot be a profile name", message)
+        self.assertIn("'quiet-mode'", message)
+
+    def test_empty_leading_punctuation_and_long_names_are_refused(self) -> None:
+        for name in ("", "   ", "-leading", ".hidden", "_x", "x" * 41):
+            with self.subTest(name=name):
+                with self.assertRaises(PolicyError):
+                    validate_profile_name(name)
+
+    def test_non_text_is_refused(self) -> None:
+        with self.assertRaises(PolicyError) as caught:
+            validate_profile_name(5)  # type: ignore[arg-type]
+        self.assertIn("must be text", str(caught.exception))
+
+    def test_forty_characters_is_allowed(self) -> None:
+        self.assertEqual(len(validate_profile_name("x" * 40)), 40)
 
 
 class TestBuildProfile(unittest.TestCase):

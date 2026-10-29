@@ -76,6 +76,11 @@ one of these is a regression, not a trade-off.
     row.
 16. The verification harness always attempts a restore after it has applied
     anything, including when a check fails or the process raises.
+17. A saved profile can never take a built-in name, and any saved profile can
+    always be deleted (a legacy shadow must never become undeletable).
+18. `status` must name the cause of a mismatch: a changed power plan is not
+    drift, and an apply that has nothing to write must still be able to clear a
+    stale plan record.
 
 ### Verification harness and releases
 

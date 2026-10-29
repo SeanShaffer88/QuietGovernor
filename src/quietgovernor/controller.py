@@ -33,6 +33,7 @@ from .policy import (
     WRITE_ORDER,
     Profile,
     build_profile,
+    validate_profile_name,
     validate_scope,
 )
 from .store import AppliedState, StateStore
@@ -83,6 +84,19 @@ class Status:
     def governing(self) -> bool:
         return self.state is not None and self.state.is_governing
 
+    @property
+    def plan_changed(self) -> bool:
+        """True when the active plan is not the one the profile was applied to.
+
+        Windows keeps these settings per plan, so switching plans after an apply
+        makes the managed values irrelevant without anything having "drifted".
+        Saying which happened is the difference between a useful report and a
+        misleading one.
+        """
+        if self.state is None or not self.state.scheme_guid:
+            return False
+        return self.state.scheme_guid != self.scheme_guid
+
 
 class Controller:
     """Ties a backend and a state store together into user-level operations."""
@@ -130,6 +144,18 @@ class Controller:
         Anything not named keeps whatever the PC currently has, which is why
         these profiles are planned against live readings before use.
         """
+        name = validate_profile_name(name)
+        # A saved profile with a built-in name would shadow it everywhere and
+        # could never be removed by name later, so it is refused with a fix path.
+        for builtin in BUILTIN_PROFILES:
+            if name.lower() == builtin.lower():
+                raise QuietGovernorError(
+                    f"{name!r} is the name of a built-in profile, so it cannot be "
+                    "used for your own. Built-in profiles always exist and cannot "
+                    "be replaced or deleted. Save yours under another name, for "
+                    f"example '{builtin}-mine', and apply that instead: "
+                    f"'quietgovernor profile set {builtin}-mine ...'."
+                )
         profile = build_profile(
             name, description or f"Your saved '{name}' profile.", values, scope=scope, partial=True
         )
@@ -147,18 +173,21 @@ class Controller:
         return profile
 
     def delete_profile(self, name: str) -> None:
-        if name in BUILTIN_PROFILES:
-            raise QuietGovernorError(
-                f"{name!r} is a built-in profile and cannot be deleted. "
-                "You can overwrite your own profiles by saving a new one with "
-                "the same name."
-            )
         stored = self.store.load_user_profiles()
         if name not in stored:
+            if name in BUILTIN_PROFILES:
+                raise QuietGovernorError(
+                    f"{name!r} is a built-in profile and cannot be deleted. "
+                    f"Built-in profiles ({', '.join(sorted(BUILTIN_PROFILES))}) are "
+                    "always available; apply a different one instead."
+                )
             raise QuietGovernorError(
                 f"There is no saved profile called {name!r}. Built-in profiles "
                 f"({', '.join(sorted(BUILTIN_PROFILES))}) are always available."
             )
+        # A saved profile that happens to share a built-in's name (possible in
+        # data written before names were checked) is still deletable: removing it
+        # only restores the built-in underneath.
         del stored[name]
         self.store.save_user_profiles(stored)
 
@@ -340,8 +369,20 @@ class Controller:
             )
 
         if plan.is_empty:
-            # Nothing was written, so nothing is being governed; recording
-            # state here would later let 'restore' claim it had work to undo.
+            # Nothing needs writing. If a record already exists but points at a
+            # different power plan, re-point it: this empty plan *is* the proof
+            # that the profile's values hold in the plan that is active now.
+            # Without this, status would keep telling the user to re-apply a
+            # profile that has nothing left to do.
+            existing = self.store.load_state()
+            if (
+                existing is not None
+                and existing.scheme_guid
+                and existing.scheme_guid != scheme_guid
+            ):
+                self._record_state(plan, profile_name)
+            # With no prior record, nothing is being governed; recording state
+            # would later let 'restore' claim it had work to undo.
             return ApplyResult(
                 plan=plan,
                 applied=(),

@@ -6,6 +6,27 @@ All notable changes to QuietGovernor are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Saving a profile under a built-in name (`profile set quiet ...`) used to shadow
+  the built-in everywhere, and `profile delete quiet` then refused because the
+  name was built-in — leaving a profile that could not be removed. Saving under a
+  built-in name is now refused (case-insensitively) with a suggested alternative,
+  and a profile written under such a name by 0.2.0 can still be deleted, which
+  restores the built-in.
+- After switching Windows power plans, `status` reported the difference as drift
+  ("something else changed them"), which pointed at the wrong cause. It now says
+  the active plan is not the plan the profile was applied to, names both plans,
+  and offers the re-apply. `--json` gains `plan_changed` and `applied_to_plan`.
+- Re-applying after a plan switch, when the new plan already matched the profile,
+  wrote nothing and left the record pointing at the old plan — so the notice could
+  never clear. An empty apply now re-points the record at the active plan.
+
+### Changed
+
+- Saved profile names are validated: 1–40 characters of letters, digits, `.`, `_`,
+  or `-`, starting with a letter or digit. Messages suggest a valid name.
+
 ### Added
 
 - `scripts/verify_windows.py`: runs the `docs/SPEC.md` §9 hardware checklist on a
