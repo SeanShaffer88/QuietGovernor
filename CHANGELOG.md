@@ -6,6 +6,8 @@ All notable changes to QuietGovernor are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-10-29
+
 ### Fixed
 
 - `docs/VERIFY.md` — the page a person follows to close the hardware gap — still
@@ -22,6 +24,16 @@ All notable changes to QuietGovernor are recorded here. The format follows
   `quietgovernor status --version` failed with a usage error. It is now part of
   the shared options, so it works in every position, including
   `quietgovernor autostart install --version`.
+- After a power-plan switch, `restore` wrote the recorded values into whatever
+  plan was active, reported "Your original processor settings are back in place",
+  and cleared its state — while the plan it had actually changed kept the cap, now
+  forgotten. Windows keeps these settings per plan, so that was a silent failure
+  to undo. `restore` now refuses in that situation (exit 1), names both plans, and
+  says how to finish: switch to the plan that was changed and run it again, or
+  pass `--into-active-plan`. The restore point is kept either way.
+- The `apply` preview still described the old restore rule ("writes it into the
+  active plan"). It now says restore will refuse and names the two ways forward; a
+  test pins the wording to the behaviour.
 
 ### Changed
 
@@ -29,14 +41,6 @@ All notable changes to QuietGovernor are recorded here. The format follows
   and the preview row no longer implies `plan --dry-run` is a valid command
   (`plan` is itself the preview; `--preview`/`--dry-run` belong to the commands
   that write).
-
-- After a power-plan switch, `restore` wrote the recorded values into whatever
-  plan was active, reported "Your original processor settings are back in place",
-  and cleared its state — while the plan it had actually changed kept the cap,
-  now forgotten. Windows keeps these settings per plan, so that is a silent
-  failure to undo. `restore` now refuses in that situation (exit 1), names both
-  plans, and says how to finish: switch to the plan that was changed and run it
-  again, or pass `--into-active-plan`. The restore point is kept either way.
 
 ## [0.3.0] — 2026-10-29
 
@@ -196,7 +200,8 @@ First implementation. The repository previously contained documentation only.
   managed.
 - Windows 8.1 and older are unsupported and untested.
 
+[0.3.1]: https://github.com/SeanShaffer88/QuietGovernor/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/SeanShaffer88/QuietGovernor/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/SeanShaffer88/QuietGovernor/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/SeanShaffer88/QuietGovernor/releases/tag/v0.1.0
-[Unreleased]: https://github.com/SeanShaffer88/QuietGovernor/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/SeanShaffer88/QuietGovernor/compare/v0.3.1...HEAD
