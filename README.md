@@ -9,8 +9,8 @@ video calls, builds, and browser tabs. Everything it touches is recorded first,
 previewed before it happens, verified afterwards, and reversible with one
 command.
 
-**Status: early implementation (0.2.0).** Working code, tested logic, no release
-build yet. Read [Verification status](#verification-status) before you rely on it
+**Status: early implementation (0.3.0).** Working code, tested logic, first
+release build. Read [Verification status](#verification-status) before you rely on it
 — in particular, the Windows API path has run only on a virtual CI machine, never
 on physical hardware.
 
@@ -43,7 +43,7 @@ QuietGovernor can run against an in-memory PC. This exercises the real code —
 profiles, planning, storage, restore, drift detection — and touches nothing:
 
 ```console
-$ pip install quietgovernor        # or: pipx install quietgovernor
+$ pip install ./quietgovernor-0.3.0-py3-none-any.whl   # see Installing
 $ quietgovernor --simulate status
 $ quietgovernor --simulate plan --profile quiet
 $ quietgovernor --simulate apply --profile quiet --yes
@@ -58,10 +58,19 @@ rather not change yet.
 ## Installing
 
 ```console
-pipx install quietgovernor      # isolated, recommended
-pip install quietgovernor       # or into a Python you manage
-py -m pip install quietgovernor # Windows launcher form
+# from the wheel attached to a release (Releases page), isolated, recommended
+pipx install ./quietgovernor-0.3.0-py3-none-any.whl
+
+# or into a Python you manage
+py -m pip install quietgovernor-0.3.0-py3-none-any.whl
+
+# or straight from a checkout
+py -m pip install .
 ```
+
+QuietGovernor is **not on PyPI yet**, so `pip install quietgovernor` will not find
+it — downloads come from the Releases page. Check what you installed with
+`quietgovernor --version`.
 
 Prefer installing Python **for all users** if you plan to use the sign-in task:
 the privilege guard in [Optional: re-apply at sign-in](#optional-re-apply-at-sign-in)
@@ -236,7 +245,7 @@ owner-read/write only.
   QuietGovernor can install is the opt-in sign-in task described above, which
   runs once at sign-in and exits. Nothing stays running.
 - **No telemetry, no network access at all.** Nothing leaves the machine.
-- **No GUI yet.** The command line is the interface in 0.2.0.
+- **No GUI yet.** The command line is the interface in 0.3.0.
 
 ## Troubleshooting
 
@@ -297,15 +306,15 @@ on physical hardware and never with the resulting values inspected by a human.
 | Profiles, ranges, scope, explanations | **Verified** | `tests/test_policy.py`, `tests/test_planning.py` |
 | Planning, warnings, notes, drift maths | **Verified** | `tests/test_planning.py`, `tests/test_controller.py` |
 | Atomic storage, schema guards, baseline-once | **Verified** | `tests/test_store.py` |
-| Apply/restore/rollback/refusal ordering | **Verified** | `tests/test_controller.py` (38 tests, simulated backend) |
+| Apply/restore/rollback/refusal ordering | **Verified** | `tests/test_controller.py` (47 tests, simulated backend) |
 | Auto-start preflight, path trust, install/remove/verify | **Verified** | `tests/test_autostart.py` (45 tests, simulated scheduler) |
-| CLI behaviour, exit codes, `--json`, consent | **Verified** | `tests/test_cli.py` (41 tests) |
+| CLI behaviour, exit codes, `--json`, consent | **Verified** | `tests/test_cli.py` (48 tests) |
 | GUID packing for `powrprof.dll` | **Verified** (byte layout vs `uuid`) | `tests/test_windows.py` |
 | Reading real settings on Windows | **Partially verified** | Windows-only tests in `tests/test_windows.py` and a real `status` call pass on a GitHub-hosted Windows VM (CI run 40810831546) |
 | Writing real settings on Windows | **Partially verified** | CI `apply` on that VM exits 0, which requires every write to be read back and match, then `restore` returns the values; the values themselves were not inspected |
 | Elevation detection (`IsUserAnAdmin`) | **Partially verified** | Exercised by the CI run; only the elevated case is covered |
 | `schtasks.exe` task create/query/delete, and the task XML being accepted | **Partially verified** | The verification harness creates, reads back, and removes the task on a CI Windows VM, and the job fails if any check fails (CI run 40812787671) |
-| The verification harness (`scripts/verify_windows.py`) | **Verified** | 19 unit tests, run in simulation on every push and on Windows in CI |
+| The verification harness (`scripts/verify_windows.py`) | **Verified** | 25 unit tests, run in simulation on every push and on Windows in CI |
 | Physical Windows 10/11 desktop, laptop fan behaviour, vendor software conflicts | **Unverified** | No hardware run; the checklist is in `docs/SPEC.md` §9 |
 
 The test suite is the honest part: "Verified" above means a check ran in this

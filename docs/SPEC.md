@@ -1,8 +1,8 @@
-# QuietGovernor — behaviour specification (0.2.0)
+# QuietGovernor — behaviour specification (0.3.0)
 
 This document is the first-project milestone the README promised: intended
 behaviour, supported Windows versions, user controls, and a small implementation
-that can be checked. It describes what version 0.2.0 **does**, not what a future
+that can be checked. It describes what version 0.3.0 **does**, not what a future
 version might do. Anything not written here is out of scope.
 
 Verification labels used throughout: **Verified** (a check in this repository ran
@@ -29,7 +29,7 @@ background components stay out of scope (see §5).
 
 ## 2. Supported environment
 
-| Item | Supported in 0.2.0 |
+| Item | Supported in 0.3.0 |
 | --- | --- |
 | Windows 10 | Yes, 1809 or later (target) |
 | Windows 11 | Yes (target) |
