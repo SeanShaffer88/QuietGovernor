@@ -276,7 +276,7 @@ any Windows setting — only `restore` does.
 ## Verification status
 
 QuietGovernor labels every claim. The platform-independent logic is verified by an
-automated test suite of 218 tests that runs anywhere. The Windows API path has been
+automated test suite of 227 tests that runs anywhere. The Windows API path has been
 exercised once, on a GitHub-hosted Windows virtual machine (see below), but never
 on physical hardware and never with the resulting values inspected by a human.
 
@@ -307,7 +307,7 @@ an issue. It is read-only unless you pass `--apply`.
 ## Development
 
 ```console
-python -m unittest discover -s . -p "test_*.py"    # 218 tests, no dependencies
+python -m unittest discover -s . -p "test_*.py"    # 227 tests, no dependencies
 python -m compileall -q src tests
 python -m quietgovernor --simulate status          # run from a checkout: PYTHONPATH=src
 ```

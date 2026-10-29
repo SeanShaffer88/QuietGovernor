@@ -494,10 +494,55 @@ def _restore(
         )
 
 
-def phase_autostart(cli: Cli, report: Report, *, install: bool, profile: str) -> None:
-    """Check the privilege guard, and optionally create and remove the task."""
+GUARD_TRUSTED = ("administrator-only", "administrator only")
+GUARD_REFUSED = ("your account can write to", "not in an administrator-only folder")
+GUARD_UNKNOWN = ("could not work out",)
+
+
+def guard_verdict(text: str) -> str:
+    """Classify the privilege guard's answer from an auto-start preview.
+
+    Three outcomes are all legitimate and all worth recording:
+
+    ``trusted``   the interpreter and package are in an administrator-only folder;
+    ``refused``   they are somewhere the signed-in account can write, so the guard
+                  declined — which is the feature working, not an error;
+    ``unknown``   the guard could not determine the folder layout and failed closed.
+
+    Anything else means the preview did not state a verdict, which is a finding.
+    """
+    lowered = text.lower()
+    # Order matters: the "could not determine" message mentions both the
+    # administrator-only folders and writable paths, so the most specific
+    # verdict has to win. Likewise the override warning says "not in an
+    # administrator-only folder", which must read as a refusal.
+    if any(needle in lowered for needle in GUARD_UNKNOWN):
+        return "unknown"
+    if any(needle in lowered for needle in GUARD_REFUSED):
+        return "refused"
+    if any(needle in lowered for needle in GUARD_TRUSTED):
+        return "trusted"
+    return "silent"
+
+
+def phase_autostart(
+    cli: Cli,
+    report: Report,
+    *,
+    install: bool,
+    profile: str,
+    override_guard: bool = False,
+) -> None:
+    """Check the privilege guard, and exercise the task where that is safe.
+
+    On a machine whose Python lives somewhere user-writable (a per-user install,
+    or a CI runner's tool cache), the guard refuses — correctly. That refusal is
+    recorded as a pass, because it is the behaviour being verified. ``override_guard``
+    exists so CI can still exercise Task Scheduler and the task XML on an
+    ephemeral machine, with the override disclosed in the report.
+    """
     preview = cli.run("autostart", "install", "--profile", profile, "--preview")
-    text = f"{preview.stdout}\n{preview.stderr}"
+    preview_text = f"{preview.stdout}\n{preview.stderr}"
     report.add(
         Check(
             "auto-start preview runs",
@@ -505,23 +550,30 @@ def phase_autostart(cli: Cli, report: Report, *, install: bool, profile: str) ->
             detail=(
                 "The sign-in task can be planned without creating anything."
                 if preview.returncode == 0
-                else "The preview failed: " + (preview.stderr.strip() or preview.stdout.strip())
+                else "The preview failed: "
+                + (preview.stderr.strip() or preview.stdout.strip())
             ),
         )
     )
 
-    guard = "administrator-only" in text or "not in an administrator-only" in text
+    verdict = guard_verdict(preview_text)
     report.add(
         Check(
             "the privilege guard gives a verdict on this machine",
-            ok=guard,
-            detail=(
-                "The preview states whether the interpreter and package are in an "
-                "administrator-only folder, or says the check could not be made. "
-                "Read the result in the preview text: either verdict is valid, "
-                "silence is not."
-            ),
-            actual=_first_matching_line(text, ("administrator-only", "could not work out")),
+            ok=verdict != "silent",
+            detail={
+                "trusted": "The interpreter and package are in an administrator-only "
+                "folder, so the task cannot be hijacked by anything running as the "
+                "normal user.",
+                "refused": "The guard declined: the interpreter or package is somewhere "
+                "the signed-in account can write. That is the guard working as intended, "
+                "not a failure.",
+                "unknown": "The guard could not determine the folder layout and refused "
+                "(fail closed). That is the intended behaviour when it cannot check.",
+                "silent": "The preview stated no verdict about where the interpreter and "
+                "package live, which it must always do. Record the preview text.",
+            }[verdict],
+            actual=verdict,
         )
     )
 
@@ -530,10 +582,7 @@ def phase_autostart(cli: Cli, report: Report, *, install: bool, profile: str) ->
         Check(
             "status reports the auto-start state",
             ok=status.get("available") is True and status.get("installed") is False,
-            detail=(
-                "Before installing, status says auto-start is available and not "
-                "installed."
-            ),
+            detail="Before installing, status says auto-start is available and not installed.",
             actual={"available": status.get("available"), "installed": status.get("installed")},
         )
     )
@@ -549,8 +598,42 @@ def phase_autostart(cli: Cli, report: Report, *, install: bool, profile: str) ->
         )
         return
 
-    created = cli.run("autostart", "install", "--profile", profile, "--yes")
-    blocked = created.returncode != 0
+    if verdict in {"refused", "unknown"} and not override_guard:
+        # Nothing was created, so nothing needs removing. Recording this as a
+        # skip keeps the report honest: the task path was not exercised here.
+        report.add(
+            Check(
+                "sign-in task created and removed",
+                ok=True,
+                skipped=True,
+                detail=(
+                    "Not exercised: the privilege guard declined on this machine "
+                    f"({verdict}). Use --autostart-anyway on a throw-away machine to "
+                    "exercise Task Scheduler despite the guard."
+                ),
+            )
+        )
+        return
+
+    install_args = ["autostart", "install", "--profile", profile, "--yes"]
+    if verdict in {"refused", "unknown"}:
+        install_args.append("--allow-untrusted-paths")
+        report.add(
+            Check(
+                "privilege guard overridden for this run",
+                ok=True,
+                skipped=True,
+                detail=(
+                    "The guard declined, and --autostart-anyway was given, so the task "
+                    "was created anyway to exercise Task Scheduler. Any code in those "
+                    "folders could run as administrator at the next sign-in; this must "
+                    "not be done on a machine that matters."
+                ),
+                actual=verdict,
+            )
+        )
+
+    created = cli.run(*install_args)
     report.add(
         Check(
             "sign-in task installed",
@@ -562,7 +645,7 @@ def phase_autostart(cli: Cli, report: Report, *, install: bool, profile: str) ->
             ),
         )
     )
-    if blocked:
+    if created.returncode != 0:
         report.add(
             Check(
                 "sign-in task removed",
@@ -579,7 +662,9 @@ def phase_autostart(cli: Cli, report: Report, *, install: bool, profile: str) ->
             "the task runs elevated at sign-in",
             ok=installed.get("run_level") == "HighestAvailable"
             and "quietgovernor" in (installed.get("arguments") or "").lower(),
-            detail="Task Scheduler reports the elevated run level and the payload command.",
+            detail=(
+                "Task Scheduler reports the elevated run level and the payload command."
+            ),
             expected={"run_level": "HighestAvailable", "arguments": "… quietgovernor …"},
             actual={
                 "run_level": installed.get("run_level"),
@@ -774,6 +859,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--cli", default=None, help="path to the quietgovernor executable")
     parser.add_argument(
+        "--autostart-anyway",
+        action="store_true",
+        help="if the privilege guard declines, create the task anyway to exercise "
+        "Task Scheduler (only on a throw-away machine)",
+    )
+    parser.add_argument(
         "--simulate",
         action="store_true",
         help="run against the simulated PC (for trying the harness itself)",
@@ -858,7 +949,13 @@ def main(argv: list[str] | None = None) -> int:
                 print("Stopped. Nothing was changed.")
                 return 2
         phase_write(cli, report, args.profile)
-        phase_autostart(cli, report, install=args.autostart, profile=args.profile)
+        phase_autostart(
+            cli,
+            report,
+            install=args.autostart,
+            profile=args.profile,
+            override_guard=args.autostart_anyway,
+        )
     else:
         report.add(
             Check(

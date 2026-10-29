@@ -45,6 +45,7 @@ class FakeCli:
         writes_apply: bool = True,
         restore_fails: bool = False,
         reverts: bool = True,
+        guard: str = "trusted",
     ) -> None:
         self.state_dir = None
         self.simulate = False
@@ -52,21 +53,39 @@ class FakeCli:
         self.writes_apply = writes_apply
         self.restore_fails = restore_fails
         self.reverts = reverts
+        self.guard = guard
         self.calls: list[tuple[str, ...]] = []
         self._applied = False
+        self._task_installed = False
         self._values = {"max_state": {"ac": 100, "dc": 100}, "boost_mode": {"ac": 1, "dc": 1}}
 
     # -- the interface the harness uses -----------------------------------
+
+    def preview_text(self) -> str:
+        from quietgovernor.autostart import USER_WRITABLE_HELP
+
+        return {
+            "trusted": (
+                "The interpreter and the QuietGovernor package both live in "
+                "administrator-only folders, so the task cannot be hijacked."
+            ),
+            "refused": USER_WRITABLE_HELP
+            + " These paths are in a folder your account can write to: C:\\x. "
+            "Nothing was changed.",
+            "unknown": (
+                "Could not work out which folders are administrator-only on this "
+                "system, so QuietGovernor cannot confirm the task would not run code "
+                "from a folder your account can write to."
+            ),
+            "silent": "Plan: create the task at \\QuietGovernor\\ApplyAtLogon.",
+        }[self.guard]
 
     def run(self, *arguments: str, check: bool = False):
         self.calls.append(arguments)
         if arguments[0] == "apply":
             if self.writes_apply:
                 self._applied = True
-                self._values["max_state"] = {
-                    "ac": 60 if self.writes_apply else 100,
-                    "dc": 60,
-                }
+                self._values["max_state"] = {"ac": 60, "dc": 60}
                 self._values["boost_mode"] = {"ac": 0, "dc": 0}
             return subprocess.CompletedProcess(list(arguments), 0, "Changed 6 setting(s)", "")
         if arguments[0] == "restore":
@@ -78,19 +97,28 @@ class FakeCli:
                 self._values["boost_mode"] = {"ac": 1, "dc": 1}
             return subprocess.CompletedProcess(list(arguments), 0, "Changed 5 setting(s)", "")
         if arguments[0] == "autostart":
+            if "--preview" in arguments:
+                return subprocess.CompletedProcess(list(arguments), 0, self.preview_text(), "")
             if arguments[1] == "install":
-                return subprocess.CompletedProcess(
-                    list(arguments),
-                    0,
-                    "",
-                    "The interpreter and the QuietGovernor package both live in "
-                    "administrator-only folders.",
-                )
+                if self.guard in {"refused", "unknown"} and "--allow-untrusted-paths" not in arguments:
+                    return subprocess.CompletedProcess(
+                        list(arguments),
+                        1,
+                        "Auto-start was not installed, and nothing on this PC was changed.",
+                        "",
+                    )
+                self._task_installed = True
+                return subprocess.CompletedProcess(list(arguments), 0, "", "")
+            if arguments[1] == "remove":
+                self._task_installed = False
+                return subprocess.CompletedProcess(list(arguments), 0, "", "")
             return subprocess.CompletedProcess(list(arguments), 0, "", "")
         return subprocess.CompletedProcess(list(arguments), 0, "", "")
 
     def json(self, *arguments: str) -> dict:
         self.calls.append(arguments)
+        if "install" in arguments and "autostart" in arguments:
+            return {}
         if "plan" in arguments:
             return {
                 "changes": [
@@ -113,7 +141,19 @@ class FakeCli:
             },
             "drift": [],
             "restore_point": {"captured_at": "2026-10-29T00:00:00+00:00"},
-            "autostart": {"available": True, "installed": False, "problems": []},
+            "autostart": {
+                "available": True,
+                "installed": self._task_installed,
+                "profile": "quiet" if self._task_installed else None,
+                "run_level": "HighestAvailable" if self._task_installed else None,
+                "command": "pythonw.exe" if self._task_installed else None,
+                "arguments": (
+                    "-m quietgovernor autostart run --profile quiet"
+                    if self._task_installed
+                    else None
+                ),
+                "problems": [],
+            },
         }
 
 
@@ -183,6 +223,44 @@ class TestVerdicts(unittest.TestCase):
         self.assertIn("Python 3.12.0", markdown)
 
 
+class TestGuardVerdict(unittest.TestCase):
+    """The detector must agree with the words the product actually prints."""
+
+    def test_trusted(self) -> None:
+        text = (
+            "The interpreter and the QuietGovernor package both live in "
+            "administrator-only folders, so the task cannot be hijacked."
+        )
+        self.assertEqual(harness.guard_verdict(text), "trusted")
+
+    def test_refused_matches_the_product_message(self) -> None:
+        from quietgovernor.autostart import USER_WRITABLE_HELP
+
+        text = USER_WRITABLE_HELP + (
+            " These paths are in a folder your account can write to: C:\\Users\\x. "
+            "Nothing was changed."
+        )
+        self.assertEqual(harness.guard_verdict(text), "refused")
+
+    def test_override_warning_reads_as_a_refusal(self) -> None:
+        text = (
+            "Auto-start will run code that is not in an administrator-only folder: "
+            "C:\\Users\\x. Anything that can write there could run code as administrator."
+        )
+        self.assertEqual(harness.guard_verdict(text), "refused")
+
+    def test_unknown_wins_over_the_phrases_it_contains(self) -> None:
+        text = (
+            "Could not work out which folders are administrator-only on this system, "
+            "so QuietGovernor cannot confirm the task would not run code from a folder "
+            "your account can write to."
+        )
+        self.assertEqual(harness.guard_verdict(text), "unknown")
+
+    def test_no_verdict_at_all(self) -> None:
+        self.assertEqual(harness.guard_verdict("Plan: create the task."), "silent")
+
+
 class TestWritePhaseGuarantees(unittest.TestCase):
     def test_restore_runs_even_when_a_check_fails(self) -> None:
         # The simulated PC ignores the write, so "written values match the plan"
@@ -217,6 +295,61 @@ class TestWritePhaseGuarantees(unittest.TestCase):
         harness.phase_read(cli, report)
         harness.phase_write(cli, report, "quiet")
         self.assertIn("original values are back", [check.name for check in report.failures])
+
+    def test_a_correct_refusal_by_the_guard_is_a_pass(self) -> None:
+        # The guard declining on a user-writable Python is the feature working.
+        cli = FakeCli(guard="refused")
+        report = harness.Report(mode="real")
+        harness.phase_autostart(cli, report, install=True, profile="quiet")
+        guard = next(c for c in report.checks if c.name.startswith("the privilege guard"))
+        self.assertTrue(guard.ok)
+        self.assertEqual(guard.actual, "refused")
+        self.assertIn("guard working as intended", guard.detail)
+        task = next(c for c in report.checks if c.name == "sign-in task created and removed")
+        self.assertTrue(task.skipped, "the task path is not exercised when the guard refuses")
+        self.assertEqual(report.failures, [], [c.detail for c in report.failures])
+        installs = [c for c in cli.calls if c[0] == "autostart" and c[1] == "install"]
+        self.assertTrue(
+            all("--preview" in call for call in installs),
+            "a refused install must not be attempted",
+        )
+
+    def test_an_unverifiable_folder_layout_is_a_pass_and_skips(self) -> None:
+        cli = FakeCli(guard="unknown")
+        report = harness.Report(mode="real")
+        harness.phase_autostart(cli, report, install=True, profile="quiet")
+        guard = next(c for c in report.checks if c.name.startswith("the privilege guard"))
+        self.assertTrue(guard.ok)
+        self.assertEqual(guard.actual, "unknown")
+        self.assertIn("fail closed", guard.detail)
+        self.assertEqual(report.failures, [], [c.detail for c in report.failures])
+
+    def test_autostart_anyway_overrides_the_guard_and_still_cleans_up(self) -> None:
+        cli = FakeCli(guard="refused")
+        report = harness.Report(mode="real")
+        harness.phase_autostart(cli, report, install=True, profile="quiet", override_guard=True)
+        installs = [c for c in cli.calls if c[0] == "autostart" and c[1] == "install"]
+        self.assertTrue(
+            any("--allow-untrusted-paths" in call for call in installs),
+            "the override must be passed through explicitly",
+        )
+        self.assertTrue(
+            any(c[1] == "remove" for c in cli.calls), "the task must still be removed"
+        )
+        override = next(
+            c for c in report.checks if c.name.startswith("privilege guard overridden")
+        )
+        self.assertTrue(override.skipped)
+        self.assertIn("must not be done on a machine that matters", override.detail)
+        self.assertEqual(report.failures, [], [c.detail for c in report.failures])
+
+    def test_a_preview_without_a_verdict_is_a_failure(self) -> None:
+        cli = FakeCli(guard="silent")
+        report = harness.Report(mode="real")
+        harness.phase_autostart(cli, report, install=False, profile="quiet")
+        guard = next(c for c in report.checks if c.name.startswith("the privilege guard"))
+        self.assertFalse(guard.ok)
+        self.assertEqual(guard.actual, "silent")
 
     def test_a_successful_round_trip_passes_every_check(self) -> None:
         cli = FakeCli()

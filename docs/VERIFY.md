@@ -106,7 +106,23 @@ the report, on a laptop:
 | `original values are back` fails | **Stop.** Run `quietgovernor restore` again and compare with Windows' Power Options. Report the values. |
 | `restore ran` fails | The restore itself was refused. Your baseline is safe in the state folder; run `quietgovernor restore` from an elevated terminal. |
 | `the privilege guard gives a verdict` fails | The preview printed neither verdict. Report the full preview text. |
-| `sign-in task installed` fails | Either the guard correctly refused (read the message — that is the feature working on a per-user Python) or Windows refused the task. The report says which. |
+| `the privilege guard gives a verdict` reports `refused` or `unknown` | **Not a failure.** The guard declined because the interpreter or package sits somewhere your account can write (typical for a per-user Python), or it could not tell and refused to guess. The report marks the task phase as skipped. |
+| `sign-in task installed` fails | Windows refused the task. The message says why. |
+| `the task runs elevated at sign-in` fails | The task exists but Task Scheduler reports a different command or run level. Keep the report. |
+
+## Exercising the task despite the guard
+
+On a throw-away machine — a VM, or CI — where Python lives somewhere
+user-writable, the guard will decline the sign-in task. To exercise Task
+Scheduler and the task XML anyway:
+
+```pwsh
+py scripts/verify_windows.py --apply --autostart --autostart-anyway
+```
+
+That creates a task that runs code from a user-writable folder as administrator,
+then removes it at the end of the run. It is recorded in the report as an
+override, and it must not be done on a machine you care about.
 
 ## For a second machine
 

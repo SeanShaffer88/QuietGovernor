@@ -121,8 +121,16 @@ jobs:
           # for real. Continue on failure so the report and the log are kept even
           # when a check fails; the step output states the verdict either way.
           New-Item -ItemType Directory -Force -Path reports | Out-Null
-          python scripts/verify_windows.py --apply --autostart --yes --out-dir reports 2>&1 |
-            Tee-Object -FilePath harness-log.txt
+          # --autostart-anyway: a runner's Python lives in a tool cache the user
+          # can write to, so the privilege guard correctly declines there. The
+          # flag creates the task anyway so Task Scheduler and the task XML get
+          # exercised; it must never be used on a machine that matters.
+          python scripts/verify_windows.py --apply --autostart --yes --autostart-anyway `
+            --out-dir reports 2>&1 | Tee-Object -FilePath harness-log.txt
+          "HARNESS_EXIT: $LASTEXITCODE"
+          if (Test-Path reports) {
+            Get-ChildItem reports -Filter *.md | Get-Content | Select-String -Pattern "Verdict" -Context 0,2
+          }
           Get-ChildItem reports | Format-Table Name, Length
 
       - name: Auto-start task (install, inspect, remove)
