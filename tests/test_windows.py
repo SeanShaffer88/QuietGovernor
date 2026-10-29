@@ -17,7 +17,13 @@ from tests import TempDirTestCase  # noqa: F401
 
 from quietgovernor.errors import BackendError
 from quietgovernor.policy import SETTINGS
-from quietgovernor.windows import GUID, WindowsBackend, is_elevated, is_windows
+from quietgovernor.windows import (
+    GUID,
+    WindowsBackend,
+    _parse_task_xml,
+    is_elevated,
+    is_windows,
+)
 
 IS_WINDOWS = sys.platform.startswith("win")
 
@@ -54,6 +60,51 @@ class TestGuidPacking(unittest.TestCase):
         with self.assertRaises(BackendError) as caught:
             GUID.from_string("not-a-guid")
         self.assertIn("not a valid Windows GUID", str(caught.exception))
+
+
+class TestTaskXmlParsing(unittest.TestCase):
+    """Verification of a created task depends on reading its XML back."""
+
+    XML = (
+        '<?xml version="1.0" encoding="UTF-16"?>'
+        '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">'
+        "<Principals><Principal id=\"Author\"><RunLevel>HighestAvailable</RunLevel>"
+        "</Principal></Principals>"
+        "<Actions Context=\"Author\"><Exec>"
+        "<Command>C:\\Program Files\\Python312\\pythonw.exe</Command>"
+        "<Arguments>-m quietgovernor autostart run --profile quiet</Arguments>"
+        "</Exec></Actions></Task>"
+    )
+
+    def test_extracts_command_arguments_and_run_level(self) -> None:
+        parsed = _parse_task_xml(self.XML)
+        assert parsed is not None
+        self.assertEqual(parsed["command"], r"C:\Program Files\Python312\pythonw.exe")
+        self.assertEqual(parsed["arguments"], "-m quietgovernor autostart run --profile quiet")
+        self.assertEqual(parsed["run_level"], "HighestAvailable")
+
+    def test_ignores_a_byte_order_mark_and_leading_text(self) -> None:
+        parsed = _parse_task_xml("\ufeff" + self.XML)
+        assert parsed is not None
+        self.assertEqual(parsed["run_level"], "HighestAvailable")
+
+    def test_namespace_prefix_does_not_matter(self) -> None:
+        prefixed = (
+            '<t:Task xmlns:t="http://schemas.microsoft.com/windows/2004/02/mit/task">'
+            "<t:Actions><t:Exec><t:Command>C:\\py.exe</t:Command>"
+            "<t:Arguments>-m quietgovernor</t:Arguments></t:Exec></t:Actions>"
+            "<t:Principals><t:Principal><t:RunLevel>HighestAvailable</t:RunLevel>"
+            "</t:Principal></t:Principals></t:Task>"
+        )
+        parsed = _parse_task_xml(prefixed)
+        assert parsed is not None
+        self.assertEqual(parsed["command"], r"C:\py.exe")
+        self.assertEqual(parsed["run_level"], "HighestAvailable")
+
+    def test_unparseable_input_returns_none(self) -> None:
+        for text in ("", "not xml", "<Task><broken>"):
+            with self.subTest(text=text):
+                self.assertIsNone(_parse_task_xml(text))
 
 
 class TestPlatformDetection(unittest.TestCase):

@@ -113,11 +113,51 @@ def main() -> int:
         if restored["restore_point"] is None:
             failures.append("restore discarded the restore point")
 
+        # Auto-start: install, inspect, run the task's payload, then remove.
+        check_exit(
+            command,
+            state_dir,
+            "--simulate",
+            "autostart",
+            "install",
+            "--profile",
+            "quiet",
+            "--yes",
+            failures=failures,
+        )
+        with_task = check_json(command, state_dir, "--simulate", "--json", "status")
+        autostart = with_task.get("autostart", {})
+        if not autostart.get("installed"):
+            failures.append("autostart install did not register a task")
+        if autostart.get("profile") != "quiet":
+            failures.append(f"autostart task profile is {autostart.get('profile')!r}")
+        if autostart.get("problems"):
+            failures.append(f"autostart reported problems: {autostart['problems']}")
+
+        check_exit(
+            command, state_dir, "--simulate", "autostart", "run", failures=failures
+        )
+        after_task_run = check_json(command, state_dir, "--simulate", "--json", "status")
+        last_run = (after_task_run.get("autostart") or {}).get("last_run") or {}
+        if not last_run.get("ok"):
+            failures.append(f"the auto-start run was not recorded as successful: {last_run}")
+
+        check_exit(
+            command, state_dir, "--simulate", "autostart", "remove", "--yes", failures=failures
+        )
+        removed = check_json(command, state_dir, "--simulate", "--json", "status")
+        if (removed.get("autostart") or {}).get("installed"):
+            failures.append("autostart remove left the task registered")
+
+
     for failure in failures:
         print(f"FAIL: {failure}")
     if failures:
         return 1
-    print("Smoke test passed: apply changed the values, restore put them back.")
+    print(
+        "Smoke test passed: apply changed the values, restore put them back, "
+        "and the sign-in task was installed, run, and removed."
+    )
     return 0
 
 

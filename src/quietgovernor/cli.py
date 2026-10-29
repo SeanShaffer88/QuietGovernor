@@ -21,6 +21,14 @@ import sys
 from typing import Sequence
 
 from . import __version__
+from .autostart import (
+    DEFAULT_PROFILE as DEFAULT_AUTOSTART_PROFILE,
+    TASK_PATH,
+    AutostartManager,
+    AutostartPlan,
+    AutostartStatus,
+    SimulatedScheduler,
+)
 from .backend import SimulatedBackend
 from .controller import ApplyResult, Controller, Status
 from .errors import ActionRefused, QuietGovernorError
@@ -154,6 +162,82 @@ def build_backend(args: argparse.Namespace, store: StateStore):
     return WindowsBackend()
 
 
+#: Paths used by --simulate, so the auto-start flow can be demonstrated on any
+#: operating system. They are never used in real mode.
+SIMULATED_ENV = {
+    "PROGRAMFILES": r"C:\Program Files",
+    "PROGRAMFILES(X86)": r"C:\Program Files (x86)",
+    "SYSTEMROOT": r"C:\Windows",
+}
+SIMULATED_INTERPRETER = r"C:\Program Files\Python312\pythonw.exe"
+SIMULATED_PACKAGE_ROOT = r"C:\Program Files\Python312\Lib\site-packages\quietgovernor"
+def build_autostart(
+    args: argparse.Namespace, controller: Controller
+) -> AutostartManager | None:
+    """Assemble the auto-start manager, or None when this PC cannot host one.
+
+    Returning None keeps a missing Task Scheduler from taking down the whole
+    ``status`` command: being unable to install auto-start is not a reason to
+    stop reporting power settings.
+    """
+    store = controller.store
+    profiles = controller.profiles()
+    if getattr(args, "simulate", False):
+        return AutostartManager(
+            store,
+            SimulatedScheduler(store.directory / "simulated-tasks.json"),
+            interpreter=SIMULATED_INTERPRETER,
+            package_root=SIMULATED_PACKAGE_ROOT,
+            env=SIMULATED_ENV,
+            profile_exists=lambda name: name in profiles,
+            supervisor=lambda: True,
+            user="SIMULATED\\user",
+        )
+    from .errors import BackendError
+    from .windows import (
+        WindowsTaskScheduler,
+        is_elevated,
+        package_root,
+        python_for_tasks,
+    )
+
+    try:
+        scheduler = WindowsTaskScheduler()
+    except BackendError:
+        return None
+
+    return AutostartManager(
+        store,
+        scheduler,
+        interpreter=python_for_tasks(),
+        package_root=package_root(),
+        env=dict(os.environ),
+        profile_exists=lambda name: name in profiles,
+        supervisor=is_elevated,
+    )
+
+
+def require_autostart(args: argparse.Namespace, controller: Controller) -> AutostartManager:
+    """The manager, or a clear error when this PC cannot run scheduled tasks."""
+    manager = build_autostart(args, controller)
+    if manager is None:
+        from .errors import BackendError
+
+        try:
+            from .windows import WindowsTaskScheduler
+
+            WindowsTaskScheduler()  # raises with the specific reason
+        except BackendError as error:
+            raise QuietGovernorError(
+                f"Auto-start cannot be managed on this PC: {error}"
+            ) from error
+        raise QuietGovernorError(
+            "Auto-start cannot be managed on this PC: Windows Task Scheduler is "
+            "unavailable. Your power settings are unaffected."
+        )
+    return manager
+
+
 def build_store(args: argparse.Namespace) -> StateStore:
     explicit = getattr(args, "state_dir", None)
     if getattr(args, "simulate", False) and not explicit:
@@ -189,7 +273,18 @@ def cmd_status(args: argparse.Namespace) -> int:
     status = controller.status()
 
     if args.json:
-        print(json.dumps(_status_dict(status), indent=2))
+        payload = _status_dict(status)
+        manager = build_autostart(args, controller)
+        payload["autostart"] = (
+            _autostart_status_dict(manager.status())
+            if manager is not None
+            else {
+                "available": False,
+                "reason": "Windows Task Scheduler is not available on this system.",
+                "installed": False,
+            }
+        )
+        print(json.dumps(payload, indent=2))
         return 0
 
     print(style.heading("Power plan"))
@@ -248,12 +343,69 @@ def cmd_status(args: argparse.Namespace) -> int:
             "  Note: the restore point is kept even after 'restore', so you can "
             "always put these values back."
         )
+    print("")
+    print(style.heading("Sign-in auto-start (optional)"))
+    for line in _autostart_status_lines(args, controller, style):
+        print(line)
     if not args.simulate:
         print("")
         print(style.dim(f"State folder: {build_store(args).directory}"))
         print(style.dim(f"Elevated: {'yes' if _elevated() else 'no'}"
                         " (changing settings needs administrator rights)"))
     return 0
+
+
+def _autostart_status_lines(
+    args: argparse.Namespace, controller: Controller, style: Style
+) -> list[str]:
+    manager = build_autostart(args, controller)
+    if manager is None:
+        return [
+            "  Unavailable on this system: it needs Windows Task Scheduler.",
+            "  Power settings are unaffected.",
+        ]
+    status = manager.status()
+    lines: list[str] = []
+    if not status.installed:
+        if status.recorded is not None:
+            lines.append("  Not installed, though a record of one exists (see below).")
+        else:
+            lines.append("  Not installed. QuietGovernor changes nothing at sign-in.")
+            lines.append(
+                f"  To re-apply a profile automatically: {PROGRAM} autostart install --profile quiet"
+            )
+        for problem in status.problems:
+            lines.append("  " + style.warn(problem))
+        return lines
+    profile = (
+        status.recorded.profile
+        if status.recorded
+        else (status.live or {}).get("profile", "an unknown profile")
+    )
+    lines.append(f"  Installed: applies the '{profile}' profile at sign-in.")
+    lines.append(f"  Task:      {status.task_path}")
+    if status.live is not None:
+        command = status.live.get("command") or "?"
+        arguments = status.live.get("arguments") or ""
+        lines.append(f"  Runs:      {command} {arguments}".rstrip())
+        if status.live.get("run_level"):
+            lines.append(
+                f"  Privileges: {status.live['run_level']} (a task that needs this "
+                "much access is why installing it is a deliberate step)"
+            )
+    if status.last_run is not None:
+        outcome = "succeeded" if status.last_run.ok else "failed"
+        lines.append(f"  Last run:  {outcome} at {status.last_run.at or 'an unknown time'}")
+        if status.last_run.message:
+            lines.append(f"             {status.last_run.message}")
+    else:
+        lines.append("  Last run:  none yet (it runs shortly after you next sign in).")
+    for problem in status.problems:
+        lines.append("  " + style.warn(problem))
+    lines.append(
+        f"  Remove it any time with: {PROGRAM} autostart remove"
+    )
+    return lines
 
 
 def _elevated() -> bool:
@@ -598,6 +750,219 @@ def cmd_profile_show(args: argparse.Namespace) -> int:
 # --- argument parsing ------------------------------------------------------
 
 
+def cmd_autostart_install(args: argparse.Namespace) -> int:
+    style = make_style(args)
+    simulated_banner(args, style)
+    controller = build_controller(args)
+    manager = require_autostart(args, controller)
+    profile = args.profile or DEFAULT_AUTOSTART_PROFILE
+
+    if args.preview:
+        plan, _changed = manager.install(
+            profile,
+            preview=True,
+            allow_untrusted_paths=args.allow_untrusted_paths,
+        )
+        if args.json:
+            print(json.dumps(_autostart_plan_dict(plan), indent=2))
+            return 0
+        _print_autostart_plan(plan, style)
+        print("")
+        print(
+            style.dim(
+                "Preview only: no scheduled task was created and no power "
+                "settings were changed."
+            )
+        )
+        return 0
+
+    def confirm(plan: AutostartPlan) -> bool:
+        if args.json and not args.yes:
+            raise ActionRefused(
+                "Nothing was changed: --json output cannot answer a confirmation "
+                "question. Re-run with --yes once you have reviewed "
+                f"'{PROGRAM} autostart install --profile {profile} --preview'."
+            )
+        if not args.json:
+            _print_autostart_plan(plan, style)
+            print("")
+        if args.yes:
+            if not args.json:
+                print("Confirmed with --yes, so the question was skipped.")
+            return True
+        if not sys.stdin.isatty():
+            raise ActionRefused(
+                "Nothing was changed: there is no terminal to confirm in. Re-run "
+                "with --yes once you have reviewed the plan."
+            )
+        answer = input(
+            f"Create the sign-in task for the '{plan.profile}' profile? Type 'yes' to continue: "
+        )
+        return answer.strip().lower() in {"yes", "y"}
+
+    plan, changed = manager.install(
+        profile,
+        confirm=confirm,
+        allow_untrusted_paths=args.allow_untrusted_paths,
+    )
+    if args.json:
+        payload = _autostart_plan_dict(plan)
+        payload["created"] = changed
+        print(json.dumps(payload, indent=2))
+        return 0
+    print("")
+    if changed:
+        print(style.bold(f"Created the sign-in task {plan.task_path}."))
+        print(f"It will apply the '{plan.profile}' profile about 20 seconds after you sign in.")
+        print("It runs with administrator rights, which is what changing power settings needs.")
+        if args.allow_untrusted_paths:
+            print(
+                style.warn(
+                    "This task runs code from a folder your account can write to, "
+                    "because --allow-untrusted-paths was given."
+                )
+            )
+        print(f"Remove it any time with: {PROGRAM} autostart remove")
+    return 0
+
+
+def cmd_autostart_remove(args: argparse.Namespace) -> int:
+    style = make_style(args)
+    simulated_banner(args, style)
+    controller = build_controller(args)
+    manager = require_autostart(args, controller)
+
+    if args.preview:
+        plan, _changed = manager.remove(preview=True)
+        if args.json:
+            print(json.dumps(_autostart_plan_dict(plan), indent=2))
+            return 0
+        _print_autostart_plan(plan, style)
+        print("")
+        print(style.dim("Preview only: the task is still registered."))
+        return 0
+
+    def confirm(plan: AutostartPlan) -> bool:
+        if args.json and not args.yes:
+            raise ActionRefused(
+                "Nothing was changed: --json output cannot answer a confirmation "
+                "question. Re-run with --yes to remove the task."
+            )
+        if not args.json:
+            _print_autostart_plan(plan, style)
+            if not args.yes:
+                print("")
+        if args.yes:
+            return True
+        if not sys.stdin.isatty():
+            raise ActionRefused(
+                "Nothing was changed: there is no terminal to confirm in. Re-run "
+                "with --yes to remove the task."
+            )
+        return input("Remove the sign-in task? Type 'yes' to continue: ").strip().lower() in {
+            "yes",
+            "y",
+        }
+
+    plan, changed = manager.remove(confirm=confirm)
+    if args.json:
+        payload = _autostart_plan_dict(plan)
+        payload["removed"] = changed
+        print(json.dumps(payload, indent=2))
+        return 0
+    print("")
+    if changed:
+        print(style.bold(f"Removed the sign-in task {plan.task_path}."))
+        print(
+            "Your current processor settings are unchanged; only the automatic "
+            f"re-apply at sign-in is gone. Undo the settings with: {PROGRAM} restore"
+        )
+    return 0
+
+
+def cmd_autostart_run(args: argparse.Namespace) -> int:
+    """The scheduled task's payload: apply one profile without a question.
+
+    Consent was given when the task was installed, so there is nobody to ask.
+    Output goes to the auto-start record instead of the screen, because the task
+    runs under pythonw.exe where there is no console to write to.
+    """
+    style = make_style(args)
+    controller = build_controller(args)
+    manager = require_autostart(args, controller)
+    profile = args.profile or DEFAULT_AUTOSTART_PROFILE
+    record = manager.load_record()
+    try:
+        result = controller.apply(profile)
+    except QuietGovernorError as error:
+        manager.record_run(profile, False, str(error))
+        if not args.json:
+            print(f"Error: {error}", file=sys.stderr)
+        else:
+            print(json.dumps({"profile": profile, "ok": False, "error": str(error)}))
+        return 1
+    message = (
+        f"Applied {len(result.applied)} setting(s) and verified each one."
+        if result.changed
+        else "Nothing needed changing; the PC already matched the profile."
+    )
+    if record is not None and record.profile != profile:
+        message += (
+            f" The installed task applies '{record.profile}', but this run used '{profile}'."
+        )
+    manager.record_run(profile, True, message)
+    if args.json:
+        print(json.dumps({"profile": profile, "ok": True, "changed": len(result.applied)}))
+    elif not args.quiet:
+        print(f"Auto-start run complete: {message}")
+    return 0
+
+
+def _print_autostart_plan(plan: AutostartPlan, style: Style) -> None:
+    print(style.heading("Plan"))
+    for line in plan.detail_lines():
+        if line.startswith("  ! "):
+            print("  " + style.warn("! " + line[4:]))
+        elif line.startswith("Problems that stop this:"):
+            print(style.warn(line))
+        else:
+            print(line)
+
+
+def _autostart_plan_dict(plan: AutostartPlan) -> dict:
+    return {
+        "action": plan.action,
+        "task_path": plan.task_path,
+        "profile": plan.profile,
+        "interpreter": plan.interpreter,
+        "package_root": plan.package_root,
+        "state_dir": plan.state_dir,
+        "summary": plan.summary(),
+        "blocked": plan.blocked,
+        "checks": [
+            {"name": check.key, "passed": check.passed, "severity": check.severity, "detail": check.detail}
+            for check in plan.checks
+        ],
+        "notes": list(plan.notes),
+    }
+
+
+def _autostart_status_dict(status: AutostartStatus) -> dict:
+    return {
+        "available": True,
+        "task_path": status.task_path,
+        "installed": status.installed,
+        "consistent": status.consistent,
+        "profile": status.recorded.profile if status.recorded else None,
+        "installed_at": status.recorded.installed_at if status.recorded else None,
+        "run_level": (status.live or {}).get("run_level"),
+        "command": (status.live or {}).get("command"),
+        "arguments": (status.live or {}).get("arguments"),
+        "problems": list(status.problems),
+        "last_run": status.last_run.to_dict() if status.last_run else None,
+    }
+
+
 def _profile_parser() -> argparse.ArgumentParser:
     """The 'profile' sub-parser, rebuilt on demand for help output."""
     parser = build_parser()
@@ -642,6 +1007,15 @@ def _common_options() -> argparse.ArgumentParser:
     return common
 
 
+def _autostart_parser() -> argparse.ArgumentParser:
+    """The 'autostart' sub-parser, rebuilt on demand for help output."""
+    parser = build_parser()
+    for action in parser._actions:  # noqa: SLF001 - argparse has no public accessor
+        if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
+            return action.choices["autostart"]
+    raise RuntimeError("autostart sub-parser is missing")  # pragma: no cover
+
+
 def build_parser() -> argparse.ArgumentParser:
     common = _common_options()
     parser = argparse.ArgumentParser(
@@ -657,6 +1031,7 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {PROGRAM} apply --profile quiet\n"
             f"  {PROGRAM} restore --dry-run\n"
             f"  {PROGRAM} --simulate apply --profile quiet --yes\n"
+            f"  {PROGRAM} autostart install --profile quiet   (optional, at sign-in)\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[common],
@@ -708,6 +1083,51 @@ def build_parser() -> argparse.ArgumentParser:
     )
     restore.add_argument("--yes", "-y", action="store_true", help="do not ask for confirmation")
     restore.set_defaults(func=cmd_restore)
+
+    autostart = add("autostart", help="optional: re-apply a profile at sign-in")
+    autostart_sub = autostart.add_subparsers(dest="autostart_command", metavar="ACTION")
+
+    def add_autostart(name: str, **kwargs):
+        """Nested subcommand that also accepts the common options."""
+        return autostart_sub.add_parser(name, parents=[common], **kwargs)
+
+    install_parser = add_autostart(
+        "install", help="register a sign-in task that re-applies a profile"
+    )
+    install_parser.add_argument(
+        "--profile", "-p", default=None, help=f"profile to apply (default: {DEFAULT_AUTOSTART_PROFILE})"
+    )
+    install_parser.add_argument(
+        "--preview", "--dry-run", dest="preview", action="store_true",
+        help="show what would be created without creating it",
+    )
+    install_parser.add_argument("--yes", "-y", action="store_true", help="do not ask for confirmation")
+    install_parser.add_argument(
+        "--allow-untrusted-paths",
+        action="store_true",
+        help="create the task even if the interpreter or package is in a folder "
+        "your account can write to (weakens the protection against privilege escalation)",
+    )
+    install_parser.set_defaults(func=cmd_autostart_install)
+
+    remove_parser = add_autostart("remove", help="delete the sign-in task")
+    remove_parser.add_argument(
+        "--preview", "--dry-run", dest="preview", action="store_true",
+        help="show what would be removed",
+    )
+    remove_parser.add_argument("--yes", "-y", action="store_true", help="do not ask for confirmation")
+    remove_parser.set_defaults(func=cmd_autostart_remove)
+
+    run_parser = add_autostart(
+        "run", help="apply a profile silently (this is what the task runs)"
+    )
+    run_parser.add_argument(
+        "--profile", "-p", default=None, help=f"profile to apply (default: {DEFAULT_AUTOSTART_PROFILE})"
+    )
+    run_parser.add_argument(
+        "--quiet", "-q", action="store_true", help="no output (the default under pythonw.exe)"
+    )
+    run_parser.set_defaults(func=cmd_autostart_run)
 
     profile = add("profile", help="manage your own profiles")
     profile_sub = profile.add_subparsers(dest="profile_command", metavar="ACTION")
@@ -763,6 +1183,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     if args.command == "profile" and not getattr(args, "profile_command", None):
         _profile_parser().print_help()
+        return 2
+    if args.command == "autostart" and not getattr(args, "autostart_command", None):
+        _autostart_parser().print_help()
         return 2
     try:
         return int(args.func(args))

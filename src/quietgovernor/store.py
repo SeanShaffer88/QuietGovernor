@@ -32,6 +32,15 @@ SCHEMA_VERSION = 1
 BASELINE_FILE = "baseline.json"
 STATE_FILE = "state.json"
 PROFILES_FILE = "profiles.json"
+AUTOSTART_FILE = "autostart.json"
+
+#: Every document kind and the file it lives in. A kind not in here is a bug.
+DOCUMENT_FILES = {
+    "baseline": BASELINE_FILE,
+    "state": STATE_FILE,
+    "profiles": PROFILES_FILE,
+    "autostart": AUTOSTART_FILE,
+}
 
 STATE_DIR_ENV = "QUIETGOVERNOR_STATE_DIR"
 
@@ -251,6 +260,41 @@ class StateStore:
     def profiles_path(self) -> Path:
         return self.directory / PROFILES_FILE
 
+    @property
+    def autostart_path(self) -> Path:
+        return self.directory / AUTOSTART_FILE
+
+    # generic documents -----------------------------------------------------
+
+    def path_for(self, kind: str) -> Path:
+        """Where a document of ``kind`` lives."""
+        try:
+            return self.directory / DOCUMENT_FILES[kind]
+        except KeyError:
+            raise KeyError(
+                f"unknown document kind {kind!r}; expected one of "
+                f"{', '.join(sorted(DOCUMENT_FILES))}"
+            ) from None
+
+    def load_document(self, kind: str) -> dict[str, Any] | None:
+        """Read a whole document, validated against ``kind``. None if absent."""
+        return read_document(self.path_for(kind), kind)
+
+    def save_document(self, kind: str, data: Mapping[str, Any]) -> None:
+        write_document(self.path_for(kind), kind, data)
+
+    def clear_document(self, kind: str) -> None:
+        """Delete a document if it exists. Missing is success."""
+        try:
+            self.path_for(kind).unlink()
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            raise StoreError(
+                f"Could not remove {self.path_for(kind)} ({exc}). Close any program "
+                "that may have it open and try again."
+            ) from exc
+
     # baseline --------------------------------------------------------------
 
     def load_baseline(self) -> Baseline | None:
@@ -303,12 +347,7 @@ class StateStore:
         write_document(self.state_path, "state", state.to_dict())
 
     def clear_state(self) -> None:
-        try:
-            self.state_path.unlink()
-        except FileNotFoundError:
-            return
-        except OSError as exc:
-            raise StoreError(f"Could not remove {self.state_path} ({exc}).") from exc
+        self.clear_document("state")
 
     # user profiles ---------------------------------------------------------
 

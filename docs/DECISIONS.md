@@ -108,23 +108,57 @@ minimum at 50% prevents the tool from doing the opposite of its job.
 energy performance preference (`PERFEPP`), C-state limits. All are real knobs, but
 their effect is CPU-generation-specific and hard to explain honestly in 0.1.0.
 
-## 7. No service, no login auto-start, no elevation shim
+## 7. No service and no startup shim; opt-in scheduled task instead
 
-**Decision:** 0.1.0 does not apply itself automatically at login.
+**Decision:** nothing runs at sign-in unless the user runs
+`quietgovernor autostart install`. That command registers one Task Scheduler entry
+with a visible name (`\QuietGovernor\ApplyAtLogon`), removable with
+`quietgovernor autostart remove`, and reported by `status`.
 
-**Why:** writing power settings needs administrator rights. The options are a
-UAC prompt at every login (poor, and silent failure if dismissed), or a scheduled
-task running with highest privileges (works, but it is a persistent elevated
-component that a tool of this kind should install only with explicit, reversible
-consent — and it cannot be verified in this environment).
+**Why:** writing power settings needs administrator rights, and vendor utilities
+keep resetting them, so "quiet" does not survive a reboot without help. The
+alternatives are a UAC prompt at every sign-in (easily dismissed and silently
+useless) or an always-on elevated service (far too much machinery for three API
+calls). A single logon task is the smallest thing that works, and it is
+inspectable in a tool Windows users already trust.
 
-**Planned approach when it is built:** an opt-in `install-autostart` command
-creating a Task Scheduler entry with a visible, documented name, removable with
-`remove-autostart`, plus a `status` line stating whether it exists. Until then the
-README and SPEC both say plainly that it does not exist.
+**The security problem this creates, and the guard:** the task runs whatever
+program it points at *with administrator rights*. If that program lives in a
+folder the user's own account can write to — which is where a default per-user
+Python install lives — then anything that can write there inherits administrator
+code execution at the next sign-in. That is the standard Task Scheduler
+escalation path, so `autostart install` refuses unless both the interpreter and
+the package are inside an administrator-only folder (`Program Files`,
+`%SystemRoot%`). If those folders cannot be identified, it fails closed.
+`--allow-untrusted-paths` exists for people who accept the risk, and the override
+is reported in the plan, the result, and `status` — never silent.
 
-**Rejected:** a Windows service (heavy, always-on), a startup shortcut with a
-UAC prompt (the worst of both).
+**Verification:** the created task is read back out of Task Scheduler and compared
+with what was requested; a mismatch fails the install and removes nothing else.
+The task's payload records its own outcome so failures are visible even though it
+runs under `pythonw.exe` with no console.
+
+**Rejected:** a Windows service (heavy, always-on), a startup shortcut with a UAC
+prompt (the worst of both), copying a launcher into `Program Files` automatically
+(an installer's job, not a CLI flag's), and running the payload without recording
+its result (silent failure is the same as no feature).
+
+## 7a. Task Scheduler through `schtasks.exe` with XML, not COM
+
+**Decision:** create, query, and delete the task by running `schtasks.exe` with
+`/xml` in and `--` XML out.
+
+**Why:** the command-line switches cannot express "run with highest privileges at
+logon", and `schtasks` text output is localised — a German Windows prints
+different labels, which would break parsing. XML is the same in every language and
+is what the published Task Scheduler schema is for.
+
+**Cost:** an external process per operation, and error text that has to be passed
+through verbatim. Both are acceptable: auto-start is a rare, interactive
+operation, and its failures are shown to the user rather than parsed by QuietGovernor.
+
+**Rejected:** Task Scheduler COM (`ITaskService`) — needs `comtypes`/`pywin32`, i.e.
+a dependency, for an operation that happens twice in a tool's lifetime.
 
 ## 8. Local JSON files instead of SQLite or the registry
 

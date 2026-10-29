@@ -25,7 +25,7 @@ Standing defaults (a project brief may override a specific default):
 
 ---
 
-## Implementation notes (0.1.0)
+## Implementation notes (0.2.0)
 
 This section records what exists, so future work builds on it instead of
 guessing. Behaviour is specified in `docs/SPEC.md`; the reasoning behind each
@@ -34,7 +34,7 @@ design choice is in `docs/DECISIONS.md`.
 ### Status
 
 - Working Python 3.9+ CLI, standard library only, at `src/quietgovernor/`.
-- 135 tests, run with `python -m unittest discover -s . -p "test_*.py"`.
+- 200 tests, run with `python -m unittest discover -s . -p "test_*.py"`.
 - The Windows path (`windows.py`) is implemented but **unverified on hardware**.
   Do not describe it as working until `docs/SPEC.md` §9 records a run.
 
@@ -61,6 +61,16 @@ one of these is a regression, not a trade-off.
 8. `restore` keeps `baseline.json`.
 9. A plan or setting change during confirmation aborts with nothing written.
 10. Simulation state never mixes with real state.
+11. Auto-start is never enabled implicitly: it exists only after an explicit
+    `autostart install`.
+12. `autostart install` refuses when the interpreter or package is writable by
+    the signed-in account, or when the protected folders cannot be determined
+    (fail closed). `--allow-untrusted-paths` is the only override, and every
+    place that reports the task must disclose it.
+13. A created task is read back from Task Scheduler and compared before the
+    install is reported as successful.
+14. Removing the task never changes power settings, and `restore` never touches
+    the task.
 
 ### Verification discipline
 
@@ -77,5 +87,12 @@ one of these is a regression, not a trade-off.
 - `SimulatedBackend` supports missing settings (`unavailable=`), failing writes
   (`fail_on=`), and a persisted simulated machine (`state_path=`), which is enough
   to test every failure path without Windows.
+- `SimulatedScheduler` stands in for Task Scheduler, with the same create /
+  describe / delete shape as the Windows implementation. Subclass it to test
+  verification failures (a scheduler that ignores `create` or returns a different
+  command).
+- Path-trust helpers (`protected_roots`, `is_in_protected_location`) are pure and
+  take the environment as an argument, deliberately not `os.path`, because they
+  must give the same answer on Windows and in tests elsewhere.
 - Set `QUIETGOVERNOR_STATE_DIR` to a temporary directory in tests; never write to
   a real user profile.

@@ -257,3 +257,185 @@ class TestSimulatedFlow(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class TestAutostartCommands(unittest.TestCase):
+    """Auto-start through the CLI, in simulation mode."""
+
+    def setUp(self) -> None:
+        import os
+        import tempfile
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self._env = os.environ.get("QUIETGOVERNOR_STATE_DIR")
+        os.environ["QUIETGOVERNOR_STATE_DIR"] = self._tmp.name
+
+    def tearDown(self) -> None:
+        import os
+
+        if self._env is None:
+            os.environ.pop("QUIETGOVERNOR_STATE_DIR", None)
+        else:
+            os.environ["QUIETGOVERNOR_STATE_DIR"] = self._env
+
+    def test_autostart_without_action_prints_help(self) -> None:
+        code, out, _err = simulate("autostart")
+        self.assertEqual(code, 2)
+        self.assertIn("install", out)
+        self.assertIn("remove", out)
+        self.assertIn("run", out)
+
+    def test_preview_creates_nothing(self) -> None:
+        code, out, _err = simulate("autostart", "install", "--preview")
+        self.assertEqual(code, 0)
+        self.assertIn("Preview only", out)
+        self.assertIn("administrator", out)
+        code, out, _err = simulate("status")
+        self.assertIn("Not installed", out)
+
+    def test_install_then_status_then_remove(self) -> None:
+        code, out, err = simulate("autostart", "install", "--profile", "quiet", "--yes")
+        self.assertEqual(code, 0, err)
+        self.assertIn("Created the sign-in task", out)
+
+        code, out, _err = simulate("status")
+        self.assertIn("Installed: applies the 'quiet' profile at sign-in", out)
+        self.assertIn("HighestAvailable", out)
+        self.assertIn("Last run:  none yet", out)
+
+        code, out, err = simulate("autostart", "remove", "--yes")
+        self.assertEqual(code, 0, err)
+        self.assertIn("Removed the sign-in task", out)
+        self.assertIn("Your current processor settings are unchanged", out)
+        code, out, _err = simulate("status")
+        self.assertIn("Not installed", out)
+
+    def test_install_requires_confirmation_without_yes(self) -> None:
+        # No terminal in a test run, so it must refuse rather than assume.
+        code, out, err = simulate("autostart", "install")
+        self.assertEqual(code, 0)
+        self.assertIn("no terminal to confirm", err)
+        code, out, _err = simulate("status")
+        self.assertIn("Not installed", out)
+
+    def test_declining_leaves_no_task(self) -> None:
+        with mock.patch.object(sys, "stdin", TtyStdin("no\n")), mock.patch.object(
+            builtins, "input", return_value="no"
+        ):
+            code, _out, err = run_cli(["--simulate", "autostart", "install"])
+        self.assertEqual(code, 0)
+        self.assertIn("Nothing was changed", err)
+        code, out, _err = simulate("status")
+        self.assertIn("Not installed", out)
+
+    def test_unknown_profile_is_refused_before_creating_anything(self) -> None:
+        code, _out, err = simulate("autostart", "install", "--profile", "nope", "--yes")
+        self.assertEqual(code, 1)
+        self.assertIn("no profile called", err)
+        self.assertIn("nothing on this PC was changed", err)
+        code, out, _err = simulate("status")
+        self.assertIn("Not installed", out)
+
+    def test_run_applies_the_profile_and_records_the_outcome(self) -> None:
+        simulate("autostart", "install", "--profile", "quiet", "--yes")
+        code, out, _err = simulate("autostart", "run")
+        self.assertEqual(code, 0)
+        self.assertIn("Applied 6 setting(s)", out)
+        code, out, _err = simulate("status")
+        self.assertIn("Last run:  succeeded", out)
+        self.assertIn("plugged-in: 60%", out)
+
+    def test_run_with_json_prints_json(self) -> None:
+        simulate("autostart", "install", "--profile", "quiet", "--yes")
+        code, out, _err = simulate("autostart", "run", "--json")
+        self.assertEqual(code, 0)
+        payload = json.loads(out)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["profile"], "quiet")
+
+    def test_a_failing_run_is_recorded_and_exits_nonzero(self) -> None:
+        # A profile that vanishes after install is the realistic failure: the
+        # task runs unattended, so the outcome must land in the record.
+        simulate("autostart", "install", "--profile", "quiet", "--yes")
+        simulate("profile", "set", "temp", "--max-state", "70")
+        simulate("autostart", "install", "--profile", "temp", "--yes")
+        code, _out, err = simulate("profile", "delete", "temp")
+        self.assertEqual(code, 0, err)
+        code, _out, err = simulate("autostart", "run", "--profile", "temp")
+        self.assertEqual(code, 1)
+        self.assertIn("no profile called", err + _out)
+        code, out, _err = simulate("status")
+        self.assertIn("Last run:  failed", out)
+
+    def test_remove_when_nothing_is_installed(self) -> None:
+        code, _out, err = simulate("autostart", "remove", "--yes")
+        self.assertEqual(code, 1)
+        self.assertIn("nothing to remove", err)
+
+    def test_json_status_includes_autostart(self) -> None:
+        simulate("autostart", "install", "--profile", "balanced", "--yes")
+        code, out, _err = simulate("status", "--json")
+        self.assertEqual(code, 0)
+        payload = json.loads(out)
+        self.assertTrue(payload["autostart"]["installed"])
+        self.assertEqual(payload["autostart"]["profile"], "balanced")
+        self.assertEqual(payload["autostart"]["run_level"], "HighestAvailable")
+        self.assertEqual(payload["autostart"]["problems"], [])
+
+    def test_json_install_is_parseable(self) -> None:
+        code, out, err = simulate("autostart", "install", "--profile", "quiet", "--yes", "--json")
+        self.assertEqual(code, 0, err)
+        payload = json.loads(out)
+        self.assertTrue(payload["created"])
+        self.assertFalse(payload["blocked"])
+        self.assertTrue(any(check["passed"] for check in payload["checks"]))
+
+    def test_installing_does_not_change_power_settings(self) -> None:
+        code, out, err = simulate("autostart", "install", "--profile", "quiet", "--yes")
+        self.assertEqual(code, 0, err)
+        code, out, _err = simulate("status")
+        self.assertIn("Not managing this PC", out)
+        self.assertIn("plugged-in: 100%", out)
+
+
+class TestAutostartWithoutScheduler(unittest.TestCase):
+    """On a system with no Task Scheduler, status must still work."""
+
+    def setUp(self) -> None:
+        import os
+        import tempfile
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self._env = os.environ.get("QUIETGOVERNOR_STATE_DIR")
+        os.environ["QUIETGOVERNOR_STATE_DIR"] = self._tmp.name
+
+    def tearDown(self) -> None:
+        import os
+
+        if self._env is None:
+            os.environ.pop("QUIETGOVERNOR_STATE_DIR", None)
+        else:
+            os.environ["QUIETGOVERNOR_STATE_DIR"] = self._env
+
+    def test_install_explains_that_this_pc_cannot_host_a_task(self) -> None:
+        with mock.patch("quietgovernor.cli.build_autostart", return_value=None):
+            code, _out, err = run_cli(["--simulate", "autostart", "install", "--yes"])
+        self.assertEqual(code, 1)
+        self.assertIn("Auto-start cannot be managed on this PC", err)
+
+    def test_status_still_reports_power_settings(self) -> None:
+        with mock.patch("quietgovernor.cli.build_autostart", return_value=None):
+            code, out, _err = run_cli(["--simulate", "status"])
+        self.assertEqual(code, 0)
+        self.assertIn("Processor settings", out)
+        self.assertIn("Unavailable on this system", out)
+
+    def test_json_status_reports_unavailable_instead_of_failing(self) -> None:
+        with mock.patch("quietgovernor.cli.build_autostart", return_value=None):
+            code, out, _err = run_cli(["--simulate", "status", "--json"])
+        self.assertEqual(code, 0)
+        payload = json.loads(out)
+        self.assertFalse(payload["autostart"]["available"])
+        self.assertFalse(payload["autostart"]["installed"])

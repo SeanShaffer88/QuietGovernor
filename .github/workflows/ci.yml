@@ -82,6 +82,38 @@ jobs:
           quietgovernor status | Tee-Object -FilePath after-restore.txt
           quietgovernor --json status | Out-File -FilePath after-restore.json -Encoding utf8
 
+      - name: Auto-start task (install, inspect, remove)
+        shell: pwsh
+        run: |
+          $env:QUIETGOVERNOR_STATE_DIR = "$env:RUNNER_TEMP\qg-state"
+          # First real exercise of schtasks.exe and the task XML. Both outcomes
+          # are informative: an install, or a refusal by the privilege guard if
+          # the interpreter lives somewhere user-writable (it does on hosted
+          # runners). This step reports what happened instead of asserting it,
+          # because a PowerShell pipeline can mask an exit code.
+          quietgovernor autostart install --profile quiet --preview 2>&1 |
+            Tee-Object -FilePath autostart-preview.txt
+          quietgovernor autostart install --profile quiet --yes 2>&1 |
+            Tee-Object -FilePath autostart-install.txt
+          quietgovernor --json status | Out-File -FilePath autostart-status.json -Encoding utf8
+
+          $report = Get-Content autostart-status.json -Raw | ConvertFrom-Json
+          $auto = $report.autostart
+          "AUTOSTART_AVAILABLE: $($auto.available)"
+          "AUTOSTART_INSTALLED: $($auto.installed)"
+          "AUTOSTART_PROFILE:   $($auto.profile)"
+          "AUTOSTART_RUNLEVEL:  $($auto.run_level)"
+          "AUTOSTART_COMMAND:   $($auto.command)"
+          "AUTOSTART_ARGS:      $($auto.arguments)"
+          "AUTOSTART_PROBLEMS:  $($auto.problems -join ' | ')"
+
+          quietgovernor autostart remove --yes 2>&1 | Tee-Object -FilePath autostart-remove.txt
+          quietgovernor --json status | Out-File -FilePath autostart-after-remove.json -Encoding utf8
+
+          $after = Get-Content autostart-after-remove.json -Raw | ConvertFrom-Json
+          "AUTOSTART_AFTER_REMOVE_INSTALLED: $($after.autostart.installed)"
+          Get-Content autostart-preview.txt, autostart-install.txt, autostart-remove.txt
+
       - name: Keep the evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -96,4 +128,9 @@ jobs:
             restore.txt
             after-restore.txt
             after-restore.json
+            autostart-preview.txt
+            autostart-install.txt
+            autostart-remove.txt
+            autostart-status.json
+            autostart-after-remove.json
           if-no-files-found: warn
