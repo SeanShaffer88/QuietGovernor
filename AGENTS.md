@@ -71,6 +71,23 @@ one of these is a regression, not a trade-off.
     install is reported as successful.
 14. Removing the task never changes power settings, and `restore` never touches
     the task.
+15. A verification report never presents a simulated or non-Windows run as
+    evidence, and a run with failures says so instead of producing a pasteable
+    row.
+16. The verification harness always attempts a restore after it has applied
+    anything, including when a check fails or the process raises.
+
+### Verification harness and releases
+
+- `scripts/verify_windows.py` produces the evidence `docs/SPEC.md` §9 needs. It
+  compares written values against what `plan --json` said, not against constants
+  in the script, so it cannot drift from the product. Run it in simulation
+  (`--simulate --apply --autostart`) to exercise the harness on any OS.
+- `docs/VERIFY.md` is the human procedure. Keep it in step with the harness; if you
+  add a check, add the step.
+- Releases are cut by pushing a `v*` tag. The workflow refuses a tag that does not
+  match both `__init__.py` and `pyproject.toml`, so bump both in the same commit
+  as the changelog entry.
 
 ### Verification discipline
 

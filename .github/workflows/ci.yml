@@ -41,6 +41,38 @@ jobs:
       - name: End-to-end smoke test in simulation mode
         run: python scripts/smoke_simulate.py
 
+      - name: Verification harness (simulated)
+        run: |
+          python scripts/verify_windows.py --simulate --apply --autostart --out-dir "$RUNNER_TEMP/reports"
+          # The harness exercises itself here; a simulated report must never be
+          # the only thing this job proves, so the assertions below are about the
+          # harness, not about Windows.
+          python - "$RUNNER_TEMP/reports" <<'PY'
+          import glob
+          import json
+          import sys
+
+          directory = sys.argv[1]
+          paths = sorted(glob.glob(directory + "/verification-*.json"))
+          if len(paths) != 1:
+              print(f"FAIL: expected one report in {directory}, found {len(paths)}")
+              sys.exit(1)
+          report = json.load(open(paths[0], encoding="utf-8"))
+          if report["mode"] != "simulate":
+              print("FAIL: a simulated run produced a non-simulated report")
+              sys.exit(1)
+          if report["summary"]["failed"]:
+              print("FAIL: the harness reported failures")
+              for check in report["checks"]:
+                  if check["status"] == "fail":
+                      print(" -", check["name"], ":", check["detail"])
+              sys.exit(1)
+          if report["summary"]["passed"] < 15:
+              print(f"FAIL: only {report['summary']['passed']} checks ran")
+              sys.exit(1)
+          print(f"harness ok: {report['summary']['passed']} checks passed")
+          PY
+
   windows-evidence:
     name: Windows hardware evidence (informational)
     runs-on: windows-latest
@@ -81,6 +113,25 @@ jobs:
           quietgovernor restore --yes | Tee-Object -FilePath restore.txt
           quietgovernor status | Tee-Object -FilePath after-restore.txt
           quietgovernor --json status | Out-File -FilePath after-restore.json -Encoding utf8
+
+      - name: Verification harness (the evidence this job exists for)
+        shell: pwsh
+        run: |
+          # Runners are elevated, so this exercises the write and sign-in paths
+          # for real. Continue on failure so the report and the log are kept even
+          # when a check fails; the step output states the verdict either way.
+          New-Item -ItemType Directory -Force -Path reports | Out-Null
+          # --autostart-anyway: a runner's Python lives in a tool cache the user
+          # can write to, so the privilege guard correctly declines there. The
+          # flag creates the task anyway so Task Scheduler and the task XML get
+          # exercised; it must never be used on a machine that matters.
+          python scripts/verify_windows.py --apply --autostart --yes --autostart-anyway `
+            --out-dir reports 2>&1 | Tee-Object -FilePath harness-log.txt
+          "HARNESS_EXIT: $LASTEXITCODE"
+          if (Test-Path reports) {
+            Get-ChildItem reports -Filter *.md | Get-Content | Select-String -Pattern "Verdict" -Context 0,2
+          }
+          Get-ChildItem reports | Format-Table Name, Length
 
       - name: Auto-start task (install, inspect, remove)
         shell: pwsh
@@ -133,4 +184,6 @@ jobs:
             autostart-remove.txt
             autostart-status.json
             autostart-after-remove.json
+            reports/
+            harness-log.txt
           if-no-files-found: warn

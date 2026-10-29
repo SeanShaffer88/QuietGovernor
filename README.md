@@ -55,6 +55,18 @@ Simulation state lives in `<state folder>/simulated`, separate from real state.
 It is the supported way to try QuietGovernor on macOS, Linux, or a PC you would
 rather not change yet.
 
+## Installing
+
+```console
+pipx install quietgovernor      # isolated, recommended
+pip install quietgovernor       # or into a Python you manage
+py -m pip install quietgovernor # Windows launcher form
+```
+
+Prefer installing Python **for all users** if you plan to use the sign-in task:
+the privilege guard in [Optional: re-apply at sign-in](#optional-re-apply-at-sign-in)
+refuses a per-user Python, for good reason.
+
 ## Requirements
 
 | Requirement | Detail |
@@ -264,7 +276,7 @@ any Windows setting — only `restore` does.
 ## Verification status
 
 QuietGovernor labels every claim. The platform-independent logic is verified by an
-automated test suite of 200 tests that runs anywhere. The Windows API path has been
+automated test suite of 227 tests that runs anywhere. The Windows API path has been
 exercised once, on a GitHub-hosted Windows virtual machine (see below), but never
 on physical hardware and never with the resulting values inspected by a human.
 
@@ -280,16 +292,23 @@ on physical hardware and never with the resulting values inspected by a human.
 | Reading real settings on Windows | **Partially verified** | Windows-only tests in `tests/test_windows.py` and a real `status` call pass on a GitHub-hosted Windows VM (CI run 40810831546) |
 | Writing real settings on Windows | **Partially verified** | CI `apply` on that VM exits 0, which requires every write to be read back and match, then `restore` returns the values; the values themselves were not inspected |
 | Elevation detection (`IsUserAnAdmin`) | **Partially verified** | Exercised by the CI run; only the elevated case is covered |
-| `schtasks.exe` task create/query/delete, and the task XML being accepted | **Unverified** | Nothing has run it on Windows; content and well-formedness only |
+| `schtasks.exe` task create/query/delete, and the task XML being accepted | **Partially verified** | The verification harness creates, reads back, and removes the task on a CI Windows VM, and the job fails if any check fails (CI run 40812787671) |
+| The verification harness (`scripts/verify_windows.py`) | **Verified** | 19 unit tests, run in simulation on every push and on Windows in CI |
 | Physical Windows 10/11 desktop, laptop fan behaviour, vendor software conflicts | **Unverified** | No hardware run; the checklist is in `docs/SPEC.md` §9 |
 
 The test suite is the honest part: "Verified" above means a check ran in this
 repository and passed, and nothing else.
 
+If you want to help close the gaps, [docs/VERIFY.md](docs/VERIFY.md) has the
+procedure: one script, `py scripts/verify_windows.py --apply --autostart`, which
+records your Windows build, applies a profile, reads every value back, restores
+your originals, exercises the sign-in task, and writes a report you can attach to
+an issue. It is read-only unless you pass `--apply`.
+
 ## Development
 
 ```console
-python -m unittest discover -s . -p "test_*.py"    # 200 tests, no dependencies
+python -m unittest discover -s . -p "test_*.py"    # 227 tests, no dependencies
 python -m compileall -q src tests
 python -m quietgovernor --simulate status          # run from a checkout: PYTHONPATH=src
 ```

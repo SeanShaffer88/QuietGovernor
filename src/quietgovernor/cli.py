@@ -273,7 +273,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     status = controller.status()
 
     if args.json:
-        payload = _status_dict(status)
+        payload = _status_dict(status, simulated=bool(args.simulate))
         manager = build_autostart(args, controller)
         payload["autostart"] = (
             _autostart_status_dict(manager.status())
@@ -416,9 +416,12 @@ def _elevated() -> bool:
     return is_elevated()
 
 
-def _status_dict(status: Status) -> dict:
+def _status_dict(status: Status, *, simulated: bool = False) -> dict:
     return {
         "scheme": {"guid": status.scheme_guid, "name": status.scheme_name},
+        # Recorded so a verification report can state whether writes were even
+        # possible. None means "not applicable", not "no".
+        "elevated": None if simulated else _elevated(),
         "governing": status.governing,
         "profile": status.state.profile_name if status.state else None,
         "applied_at": status.state.applied_at if status.state else None,
